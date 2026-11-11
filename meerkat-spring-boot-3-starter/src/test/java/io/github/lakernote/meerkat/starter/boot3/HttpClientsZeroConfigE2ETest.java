@@ -55,6 +55,9 @@ class HttpClientsZeroConfigE2ETest {
     @Autowired
     private TraceStore traceStore;
 
+    @Autowired
+    private io.micrometer.core.instrument.MeterRegistry meterRegistry;
+
     @org.springframework.test.context.DynamicPropertySource
     static void traceStorage(org.springframework.test.context.DynamicPropertyRegistry registry) {
         registry.add("meerkat.storage.directory", STORAGE_DIRECTORY::toString);
@@ -85,6 +88,19 @@ class HttpClientsZeroConfigE2ETest {
                 .toList();
         assertThat(remote).as(flatten(trace.treeNodes()).toString()).hasSize(3);
         assertThat(remote).allSatisfy(node -> assertThat(node.name()).isEqualTo("GET localhost /downstream"));
+
+        // Prometheus refuses meters that share a name but not tag keys, so every client must agree.
+        List<java.util.Set<String>> tagKeys = meterRegistry.find("http.client.requests").timers().stream()
+                .map(timer -> {
+                    java.util.Set<String> keys = new java.util.TreeSet<>();
+                    timer.getId().getTags().forEach(tag -> keys.add(tag.getKey()));
+                    return (java.util.Set<String>) keys;
+                })
+                .distinct()
+                .toList();
+        assertThat(meterRegistry.find("http.client.requests").timers().stream().mapToLong(timer -> timer.count()).sum())
+                .isEqualTo(3);
+        assertThat(tagKeys).as(tagKeys.toString()).hasSize(1);
     }
 
     private TraceRecord awaitTrace(String traceId) throws InterruptedException {

@@ -37,11 +37,14 @@ import static io.github.lakernote.meerkat.integration.observation.internal.Obser
 public final class ObservationTraceHandler implements ObservationHandler<Observation.Context> {
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(ObservationTraceHandler.class);
     private static final Object STATE_KEY = ObservationTraceHandler.class.getName() + ".state";
+    // Outlives STATE_KEY: Kafka listeners stop the Observation before closing its scope, which must still pop.
+    private static final Object ROOT_SCOPE_KEY = ObservationTraceHandler.class.getName() + ".rootScope";
     private final TraceStore traceStore;
     private final MeerkatProperties properties;
     private final List<ObservationTraceIdResolver> traceIdResolvers;
     private final OperationStats operationStats;
     private final AtomicBoolean callbackFailureLogged = new AtomicBoolean();
+    private volatile boolean jdbcObservationsIgnored;
 
     public ObservationTraceHandler(TraceStore traceStore,
                                    MeerkatProperties properties,
@@ -60,6 +63,14 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
         this.operationStats = operationStats;
     }
 
+    /**
+     * Meerkat's own JDBC listener already records every SQL span; datasource-micrometer's {@code jdbc.*}
+     * Observations for the same statements would duplicate them.
+     */
+    public void ignoreJdbcObservations() {
+        jdbcObservationsIgnored = true;
+    }
+
     @Override
     public boolean supportsContext(Observation.Context context) {
         // Micrometer 可能在 Convention 设置名称前询问是否支持；等到 onStart 再读取完整上下文。
@@ -68,12 +79,13 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
 
     @Override
     public void onStart(Observation.Context context) {
-        boolean rootStarted = false;
+        RootTraceHandle startedRoot = null;
         boolean installedTraceId = false;
         SpanHandle span = null;
         try {
             ObservationType type = ObservationType.of(context.getName());
             if (type == null) return;
+            if (type == ObservationType.DATABASE && jdbcObservationsIgnored) return;
             if (type == ObservationType.HTTP) {
                 // 诊断页轮询自身 API 和静态资源会持续制造 HTTP Trace；仅跳过本组件记录，不改动宿主 Actuator/Micrometer 指标。
                 if (isDashboardRequest(context)) return;
@@ -116,9 +128,10 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
             RootTraceHandle traceHandle = null;
             if (root) {
                 // 入口建立请求级 Trace；依赖调用只挂到当前 Trace，不会单独伪装成请求。
-                rootStarted = TraceContext.startRoot(name, type.spanKind, detail);
-                traceHandle = TraceContext.currentRootTraceHandle();
-                if (installedTraceId && traceHandle != null) traceHandle.rememberOwnedTraceId(traceId);
+                // 根节点在 Observation 作用域打开时才绑定到线程，与 Micrometer 的当前 Observation 保持一致。
+                startedRoot = TraceContext.createRoot(name, type.spanKind, detail);
+                traceHandle = startedRoot;
+                if (installedTraceId) traceHandle.rememberOwnedTraceId(traceId);
             } else if (traceActive) {
                 // JDBC 查询在事务方法中同步执行；用作用域 span 表达事务包住 SQL 的真实调用层级。
                 span = type == ObservationType.DATABASE || type == ObservationType.TRANSACTION
@@ -135,14 +148,11 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
             context.put(STATE_KEY, new ObservationState(type, name, detail, traceId, root, installedTraceId,
                     threadId, root ? safe(Thread.currentThread().getName(), 128) : "",
                     resourcesAtStart, span, traceHandle));
-            if (rootStarted && traceHandle != null) trackActive(context, type, traceId, traceHandle, resourcesAtStart);
+            if (root) context.put(ROOT_SCOPE_KEY, traceHandle);
+            if (startedRoot != null) trackActive(context, type, traceId, traceHandle, resourcesAtStart);
         } catch (RuntimeException failure) {
             // 监控回调异常不能影响应用已有的 Trace 和业务流程。
-            if (rootStarted) {
-                RootTraceHandle started = TraceContext.currentRootTraceHandle();
-                if (started != null) started.discard();
-                TraceContext.clear();
-            }
+            if (startedRoot != null) startedRoot.discard();
             if (span != null) span.close();
             if (installedTraceId) TraceIds.clear();
             logCallbackFailure("start", failure);
@@ -166,8 +176,15 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
     @Override
     public void onScopeOpened(Observation.Context context) {
         ObservationState state = context.get(STATE_KEY);
-        if (state == null || state.type != ObservationType.REMOTE || state.span == null) return;
+        if (state == null) return;
         try {
+            if (state.root) {
+                // 每次打开作用域（含嵌套、ContextSnapshot、异步分派线程）都压栈，关闭时恢复上一层。
+                TraceContext.openRootScope(state.traceHandle, state.traceId,
+                        state.installedTraceId && state.startedOnCurrentThread());
+                return;
+            }
+            if (state.type != ObservationType.REMOTE || state.span == null) return;
             CaptureTarget target = state.span.captureTarget();
             if (target == null || state.remoteCaptureThread != 0) return;
             synchronized (state) {
@@ -192,13 +209,21 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
                 state.remoteCaptureThread = 0;
             }
         }
-        if (state == null || !state.startedOnCurrentThread()) return;
-        if (state.root) {
-            // Async server observations leave the request thread before their final stop callback. Detach the tree
-            // while that thread is still available for reuse; the Observation state retains it for finalization.
-            TraceContext.detach(state.traceHandle);
+        RootTraceHandle rootHandle = context.get(ROOT_SCOPE_KEY);
+        if (rootHandle != null) {
+            // 只有入口线程上最外层作用域关闭才表示请求线程已返回；异步请求此后在其他线程结束。
+            if (TraceContext.closeRootScope(rootHandle) && state != null && state.startedOnCurrentThread()) {
+                rootHandle.markDetached();
+            }
+            return;
         }
-        clearInstalledTraceId(state);
+        if (state != null && state.startedOnCurrentThread()) clearInstalledTraceId(state);
+    }
+
+    @Override
+    public void onScopeReset(Observation.Context context) {
+        // Context propagation clears every scope on the thread at once.
+        TraceContext.resetRootScopes();
     }
 
     @Override

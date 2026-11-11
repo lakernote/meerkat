@@ -12,6 +12,7 @@ final class JdbcTraceSql {
     static final int MAX_SQL_LENGTH = 512;
     static final int MAX_SCAN_LENGTH = 8_192;
     private static final int INCOMPLETE_DOLLAR_DELIMITER = -2;
+    private static final int AMBIGUOUS_LITERAL = -3;
     private static final Set<String> COMMANDS = Set.of(
             "ALTER", "CALL", "COMMIT", "CREATE", "DELETE", "DROP", "EXEC", "EXECUTE", "EXPLAIN",
             "GRANT", "INSERT", "MERGE", "PRAGMA", "REPLACE", "REVOKE", "ROLLBACK", "SAVEPOINT",
@@ -66,6 +67,8 @@ final class JdbcTraceSql {
         int limit = Math.min(sql.length(), MAX_SCAN_LENGTH);
         NormalizedSql result = new NormalizedSql();
         int index = 0;
+        // Open array constructor/subscript brackets; a '[' nested in one is never a quoted identifier.
+        int expressionBrackets = 0;
         while (index < limit && !result.full()) {
             char current = sql.charAt(index);
 
@@ -108,10 +111,12 @@ final class JdbcTraceSql {
             }
             if (current == '\'' || current == '"') {
                 result.placeholder();
-                index = skipQuoted(sql, index + 1, limit, current);
+                index = skipQuoted(sql, index, limit, current);
+                if (index == AMBIGUOUS_LITERAL) break;
                 continue;
             }
-            if (current == '`' || current == '[') {
+            if (current == '`'
+                    || (current == '[' && expressionBrackets == 0 && isBracketIdentifierStart(sql, index, limit))) {
                 char closing = current == '`' ? '`' : ']';
                 int quotedEnd = quotedIdentifierEnd(sql, index + 1, limit, closing);
                 if (quotedEnd < 0) {
@@ -128,6 +133,8 @@ final class JdbcTraceSql {
                 continue;
             }
 
+            if (current == '[') expressionBrackets++;
+            else if (current == ']' && expressionBrackets > 0) expressionBrackets--;
             result.append(current);
             index++;
         }
@@ -207,10 +214,27 @@ final class JdbcTraceSql {
         return limit;
     }
 
-    private static int skipQuoted(String sql, int index, int limit, char closing) {
+    /**
+     * Whether a backslash escapes the next character depends on the dialect and server settings (MySQL by default,
+     * PostgreSQL only in {@code E'...'}). When both readings end the literal at different places the remainder cannot
+     * be classified safely, so {@link #AMBIGUOUS_LITERAL} is returned and the caller stops emitting text.
+     */
+    private static int skipQuoted(String sql, int start, int limit, char closing) {
+        int escapedEnd = quotedEnd(sql, start + 1, limit, closing, true);
+        if (isEscapeStringPrefix(sql, start)) return escapedEnd;
+        int standardEnd = quotedEnd(sql, start + 1, limit, closing, false);
+        return escapedEnd == standardEnd ? standardEnd : AMBIGUOUS_LITERAL;
+    }
+
+    private static boolean isEscapeStringPrefix(String sql, int quote) {
+        if (quote == 0 || (sql.charAt(quote - 1) != 'E' && sql.charAt(quote - 1) != 'e')) return false;
+        return quote == 1 || !isIdentifierPart(sql.charAt(quote - 2));
+    }
+
+    private static int quotedEnd(String sql, int index, int limit, char closing, boolean backslashEscapes) {
         while (index < limit) {
             char current = sql.charAt(index);
-            if (current == '\\' && index + 1 < limit) {
+            if (backslashEscapes && current == '\\' && index + 1 < limit) {
                 index += 2;
             } else if (current == closing) {
                 if (index + 1 < limit && sql.charAt(index + 1) == closing) {
@@ -223,6 +247,25 @@ final class JdbcTraceSql {
             }
         }
         return limit;
+    }
+
+    /**
+     * {@code [name]} is a SQL Server quoted identifier, but brackets after an expression are PostgreSQL array
+     * constructors or subscripts ({@code ARRAY['x']}, {@code tags[1]}) whose contents must still be redacted.
+     */
+    private static boolean isBracketIdentifierStart(String sql, int index, int limit) {
+        int previous = index - 1;
+        while (previous >= 0 && Character.isWhitespace(sql.charAt(previous))) previous--;
+        if (previous >= 0) {
+            char before = sql.charAt(previous);
+            if (isIdentifierPart(before) || before == ']' || before == ')') return false;
+        }
+        for (int cursor = index + 1; cursor < limit; cursor++) {
+            char current = sql.charAt(cursor);
+            if (current == ']') return true;
+            if (current == '\'' || current == '"') return false;
+        }
+        return true;
     }
 
     private static int quotedIdentifierEnd(String sql, int index, int limit, char closing) {

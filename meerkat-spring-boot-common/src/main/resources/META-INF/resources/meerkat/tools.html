@@ -6,7 +6,7 @@
   <meta name="color-scheme" content="light">
   <title>Meerkat · 工具箱</title>
   <link rel="icon" type="image/png" href="../assets/meerkat-icon.png?v=20261106.12">
-  <script defer src="../assets/i18n.js?v=20261111.1"></script>
+  <script defer src="../assets/i18n.js?v=20261111.2"></script>
   <link rel="stylesheet" href="../assets/dashboard.css?v=20261111.1">
   <link rel="stylesheet" href="../assets/metrics.css?v=20261106.11">
   <link rel="stylesheet" href="../assets/stats.css?v=20261106.11">
@@ -40,7 +40,7 @@
       <p>按需使用的排查工具：临时调整日志级别、CPU 采样火焰图、堆直方图与对比、堆 Dump、配置来源和类来源。所有操作只在点击时执行，有时间和资源上限，同一类操作同时只能运行一个。</p>
     </section>
     <div id="notice" class="notice" role="status" hidden></div>
-    <div id="operate-denied" class="notice warning" hidden>当前没有敏感操作权限（ObservabilityAccessPolicy.canOperate）：修改日志级别、堆直方图、下载堆 Dump 和查看配置值已禁用。</div>
+    <div id="operate-denied" class="notice warning" hidden>当前没有敏感操作权限（ObservabilityAccessPolicy.canOperate）：修改日志级别、CPU 采样、堆直方图、下载堆 Dump、查看配置值和扫描重复类已禁用。</div>
     <nav class="tools-index" aria-label="工具列表">
       <a href="#log-levels">日志级别</a>
       <a href="#profiler">CPU 火焰图</a>
@@ -92,8 +92,8 @@
         <label class="live-toggle"><input id="profile-exclude-idle" type="checkbox" checked><span>排除空闲等待（epoll、accept 等）</span></label>
         <label class="live-toggle"><input id="profile-include-blocked" type="checkbox"><span>包含阻塞和等待中的线程</span></label>
         <label class="live-toggle"><input id="profile-by-thread" type="checkbox"><span>按线程分组</span></label>
-        <button id="profile-start" class="capture-primary" type="button">开始采样</button>
-        <button id="profile-stop" class="quiet-button" type="button" hidden>提前停止</button>
+        <button id="profile-start" class="capture-primary operate" type="button">开始采样</button>
+        <button id="profile-stop" class="quiet-button operate" type="button" hidden>提前停止</button>
       </div>
       <div id="profile-facts" class="live-facts tools-facts" hidden></div>
       <div id="flame-wrap" class="flame-wrap" hidden>
@@ -177,12 +177,12 @@
       <div class="metrics-controls tools-form">
         <label class="stats-search"><span>类名</span><input id="class-name" type="text" maxlength="500" placeholder="例如 com.fasterxml.jackson.databind.ObjectMapper"></label>
         <button id="class-lookup" class="capture-primary" type="button">查看来源</button>
-        <button id="class-scan" class="quiet-button" type="button">扫描重复类</button>
+        <button id="class-scan" class="quiet-button operate" type="button">扫描重复类</button>
       </div>
       <div id="class-result"></div>
     </section>
-    <footer>工具箱的所有操作都在点击时才执行，不会在后台持续运行；临时日志级别到期自动恢复，应用关闭时也会恢复。修改日志级别、下载堆 Dump 和查看配置值需要 canOperate 权限。</footer>
+    <footer>工具箱的所有操作都在点击时才执行，不会在后台持续运行；临时日志级别到期自动恢复，应用关闭时也会恢复。修改日志级别、CPU 采样、堆直方图、下载堆 Dump、查看配置值和扫描重复类需要 canOperate 权限。</footer>
   </main>
-  <script type="module" src="../assets/tools.js?v=20261106.2"></script>
+  <script type="module" src="../assets/tools.js?v=20261111.2"></script>
 </body>
 </html>

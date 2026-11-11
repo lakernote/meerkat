@@ -48,6 +48,7 @@ public final class OperationStats implements AutoCloseable {
     /** Names without a call for this many slices (an hour) have left every in-memory window and give up their slot. */
     static final int IDLE_SLICES = SLICES;
     private static final long FLUSH_INTERVAL_SECONDS = 60;
+    private static final int ARCHIVE_READ_ATTEMPTS = 3;
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(OperationStats.class);
 
     static final int COUNT = 0;
@@ -151,6 +152,8 @@ public final class OperationStats implements AutoCloseable {
     private final AtomicInteger keys = new AtomicInteger();
     /** Slices up to and including this one were appended to the archive by this process. */
     private volatile long flushedThroughSlice = Long.MIN_VALUE;
+    /** Changes whenever the archive gains or loses slices this process also holds in memory; guarded by this. */
+    private long archiveVersion;
     /** Slices of the last hour saved by the previous run; they are in the archive, not in {@link #operations}. */
     private volatile List<RestoredSlice> restored = List.of();
     /** Start of the one-hour views: the oldest restored slice, or this process's start. */
@@ -259,13 +262,22 @@ public final class OperationStats implements AutoCloseable {
         if (minute != null) minute.add(nanos, error, measured, cpuNanos, allocatedBytes, false);
     }
 
-    /** Synchronized with {@link #flush} so a slice is never counted from both memory and the archive. */
-    public synchronized Snapshot snapshot(Window window) {
-        long now = clockMillis.getAsLong();
+    public Snapshot snapshot(Window window) {
+        if (window == Window.HOUR) {
+            synchronized (this) {
+                return snapshot(window, clockMillis.getAsLong(), persistent(), MetricsArchive.emptyResult());
+            }
+        }
+        return withArchive((now, persistent) -> persistent
+                        ? archive.rankOperations(archiveDate(now).minusDays(window.days - 1L), archiveDate(now))
+                        : MetricsArchive.emptyResult(),
+                (now, persistent, archived) -> snapshot(window, now, persistent, archived));
+    }
+
+    /** Merges memory into {@code merged}, which already holds the archived part of a day window. */
+    private Snapshot snapshot(Window window, long now, boolean persistent, Map<Category, Map<String, long[]>> merged) {
         long currentSlice = Math.floorDiv(now, SLICE_MILLIS);
         long since;
-        Map<Category, Map<String, long[]>> merged = MetricsArchive.emptyResult();
-        boolean persistent = persistent();
         if (window == Window.HOUR) {
             long firstSlice = currentSlice - HOUR_SLICES + 1;
             since = Math.max(hourCoveredSinceMillis, firstSlice * SLICE_MILLIS);
@@ -278,7 +290,6 @@ public final class OperationStats implements AutoCloseable {
             LocalDate from = today.minusDays(window.days - 1L);
             long fromMillis = from.atStartOfDay(zone).toInstant().toEpochMilli();
             since = persistent ? fromMillis : Math.max(fromMillis, Math.max(startedAtMillis, oldestSliceMillis(now)));
-            if (persistent) merged = archive.rankOperations(from, today);
             collectSlices(merged, firstUnflushedSlice(currentSlice, persistent), currentSlice, fromMillis);
         }
         List<CategorySnapshot> categories = new ArrayList<>();
@@ -303,15 +314,51 @@ public final class OperationStats implements AutoCloseable {
     }
 
     /** The trend of one operation. */
-    public synchronized Trend trend(Category category, String name, Period period) {
+    public Trend trend(Category category, String name, Period period) {
         if (category == null) throw new IllegalArgumentException("category is required");
         String key = normalizeName(name);
         return trends(period, category, key).get(category);
     }
 
     /** The trend of every category, summed over its operations. */
-    public synchronized Map<Category, Trend> trends(Period period) {
+    public Map<Category, Trend> trends(Period period) {
         return trends(period, null, null);
+    }
+
+    @FunctionalInterface
+    private interface ArchiveRead<A> {
+        A read(long now, boolean persistent);
+    }
+
+    @FunctionalInterface
+    private interface MemoryMerge<A, R> {
+        R merge(long now, boolean persistent, A archived);
+    }
+
+    /**
+     * Reads the archive without holding this lock, so file I/O never stalls {@link #flush} or other views, then
+     * merges memory under the lock. A flush in between would count a slice from both sources or from neither, so
+     * the read is retried, and done under the lock as a last resort.
+     */
+    private <A, R> R withArchive(ArchiveRead<A> read, MemoryMerge<A, R> merge) {
+        for (int attempt = 0; attempt < ARCHIVE_READ_ATTEMPTS; attempt++) {
+            long now;
+            long version;
+            synchronized (this) {
+                now = clockMillis.getAsLong();
+                version = archiveVersion;
+            }
+            boolean persistent = persistent();
+            A archived = read.read(now, persistent);
+            synchronized (this) {
+                if (version == archiveVersion) return merge.merge(now, persistent, archived);
+            }
+        }
+        synchronized (this) {
+            long now = clockMillis.getAsLong();
+            boolean persistent = persistent();
+            return merge.merge(now, persistent, read.read(now, persistent));
+        }
     }
 
     /** Clears memory and the saved operation history. */
@@ -319,6 +366,7 @@ public final class OperationStats implements AutoCloseable {
         for (ConcurrentHashMap<String, Operation> map : operations.values()) map.clear();
         keys.set(0);
         restored = List.of();
+        archiveVersion++;
         if (archive != null) archive.clearOperations();
     }
 
@@ -342,6 +390,7 @@ public final class OperationStats implements AutoCloseable {
             }
             if (!archive.appendOperations(slice * SLICE_MILLIS, rows, today)) return;
             flushedThroughSlice = slice;
+            archiveVersion++;
         }
     }
 
@@ -371,12 +420,38 @@ public final class OperationStats implements AutoCloseable {
     }
 
     private Map<Category, Trend> trends(Period period, Category onlyCategory, String onlyName) {
-        long now = clockMillis.getAsLong();
+        if (period == Period.HOUR) {
+            synchronized (this) {
+                return trends(period, onlyCategory, onlyName, clockMillis.getAsLong(), persistent(),
+                        new EnumMap<>(Category.class));
+            }
+        }
+        return withArchive((now, persistent) -> {
+                    Map<Category, long[][]> grids = new EnumMap<>(Category.class);
+                    if (persistent) addArchived(grids, period, now, onlyCategory, onlyName);
+                    return grids;
+                },
+                (now, persistent, grids) -> trends(period, onlyCategory, onlyName, now, persistent, grids));
+    }
+
+    private void addArchived(Map<Category, long[][]> grids, Period period, long now, Category onlyCategory,
+                             String onlyName) {
         long step = period.stepMillis;
         long firstBucket = Math.floorDiv(now, step) - period.points + 1;
         long fromMillis = firstBucket * step;
-        boolean persistent = persistent();
-        Map<Category, long[][]> grids = new EnumMap<>(Category.class);
+        archive.scanOperationTotals(archiveDate(fromMillis), archiveDate(now), onlyCategory, onlyName,
+                (start, category, name, cells) -> {
+                    if (start < fromMillis) return;
+                    addCells(grid(grids, category, period), Math.floorDiv(start, step) - firstBucket, cells);
+                });
+    }
+
+    /** Builds trends from memory on top of {@code grids}, which already hold the archived part of day periods. */
+    private Map<Category, Trend> trends(Period period, Category onlyCategory, String onlyName, long now,
+                                        boolean persistent, Map<Category, long[][]> grids) {
+        long step = period.stepMillis;
+        long firstBucket = Math.floorDiv(now, step) - period.points + 1;
+        long fromMillis = firstBucket * step;
         if (period == Period.HOUR) {
             forEachOperation(onlyCategory, onlyName, (category, name, operation) ->
                     operation.addMinutes(grid(grids, category, period), firstBucket));
@@ -386,12 +461,6 @@ public final class OperationStats implements AutoCloseable {
             }
         } else {
             long currentSlice = Math.floorDiv(now, SLICE_MILLIS);
-            if (persistent) {
-                archive.scanOperations(archiveDate(fromMillis), archiveDate(now), (start, category, name, cells) -> {
-                    if (start < fromMillis || !matches(category, name, onlyCategory, onlyName)) return;
-                    addCells(grid(grids, category, period), Math.floorDiv(start, step) - firstBucket, cells);
-                });
-            }
             long firstSlice = Math.max(firstUnflushedSlice(currentSlice, persistent), Math.floorDiv(fromMillis, SLICE_MILLIS));
             forEachOperation(onlyCategory, onlyName, (category, name, operation) -> {
                 for (long slice = firstSlice; slice <= currentSlice; slice++) {

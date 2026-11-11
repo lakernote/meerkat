@@ -2,12 +2,14 @@ package io.github.lakernote.meerkat.autoconfigure;
 
 import io.github.lakernote.meerkat.integration.jdbc.internal.JdbcTraceQueryExecutionListener;
 import io.github.lakernote.meerkat.integration.jdbc.internal.SpringAwareJdbcProxyFactory;
+import io.github.lakernote.meerkat.integration.observation.internal.ObservationTraceHandler;
 import io.github.lakernote.meerkat.metrics.internal.OperationStats;
 import net.ttddyy.dsproxy.proxy.ProxyJdbcObject;
 import net.ttddyy.dsproxy.support.ProxyDataSource;
 import net.ttddyy.dsproxy.support.ProxyDataSourceBuilder;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
@@ -34,6 +36,14 @@ public class JdbcTraceAutoConfiguration {
                 () -> beanFactory.getBeanNamesForType(DataSource.class, false, false).length > 1);
     }
 
+    /** With datasource-micrometer present, its JDBC Observations would repeat the spans this listener records. */
+    @Bean
+    @ConditionalOnClass(name = "net.ttddyy.observation.tracing.DataSourceObservationListener")
+    static SmartInitializingSingleton jdbcObservationDeduplication(
+            ObjectProvider<ObservationTraceHandler> observationTraceHandler) {
+        return () -> observationTraceHandler.ifAvailable(ObservationTraceHandler::ignoreJdbcObservations);
+    }
+
     @Bean
     static BeanPostProcessor jdbcTraceDataSourcePostProcessor(
             ObjectProvider<JdbcTraceQueryExecutionListener> listenerProvider) {
@@ -54,7 +64,10 @@ public class JdbcTraceAutoConfiguration {
             JdbcTraceQueryExecutionListener listener = listenerProvider.getIfAvailable();
             if (listener == null) return bean;
             if (bean instanceof ProxyDataSource proxyDataSource) {
-                proxyDataSource.addListener(listener);
+                // datasource-micrometer injects every QueryExecutionListener bean, including this one.
+                if (!listener.registeredIn(proxyDataSource.getProxyConfig().getQueryListener())) {
+                    proxyDataSource.addListener(listener);
+                }
                 return bean;
             }
             if (bean instanceof ProxyJdbcObject) return bean;

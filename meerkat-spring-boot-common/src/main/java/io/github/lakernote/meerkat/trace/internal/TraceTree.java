@@ -241,6 +241,11 @@ final class TraceTree {
         tracked = ActiveTraces.register(this);
     }
 
+    /** The Trace ID given when this root started; blank for roots that were never tracked. */
+    synchronized String traceId() {
+        return liveTraceId;
+    }
+
     synchronized void markDetached() {
         detached = true;
     }

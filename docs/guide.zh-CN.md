@@ -216,11 +216,11 @@ API（前缀 `/api/meerkat/capture`）：`GET /status`、`POST /sessions`（JSON
 | 工具 | 作用 | 权限 |
 | --- | --- | --- |
 | 日志级别 | 列出 Logger 的配置级别和生效级别（通过 Spring Boot 的 `LoggingSystem`，Logback 和 Log4j2 都支持），临时修改级别 1–60 分钟，到期自动恢复为之前的配置级别，也可以点“立即恢复”。同时最多 50 个临时级别；修改会以 WARN 级别记录操作人 | 查看：`canView()`；修改：`canOperate()` |
-| CPU 火焰图 | 每 10–100 毫秒（默认 20 毫秒）采样 RUNNABLE 线程的调用栈，最长 60 秒（默认 10 秒），生成可交互的火焰图（点击放大，悬停显示样本数和占比）和按自身耗时排序的热点方法。调用树最多 20,000 个节点、每个栈 128 帧；可以跳过空闲的原生等待（socket accept、epoll 等），也可以包含阻塞/等待中的线程。可下载 collapsed 格式，供 flamegraph.pl 和 speedscope 使用 | `canView()` |
+| CPU 火焰图 | 每 10–100 毫秒（默认 20 毫秒）采样 RUNNABLE 线程的调用栈，最长 60 秒（默认 10 秒），生成可交互的火焰图（点击放大，悬停显示样本数和占比）和按自身耗时排序的热点方法。调用树最多 20,000 个节点、每个栈 128 帧；可以跳过空闲的原生等待（socket accept、epoll 等），也可以包含阻塞/等待中的线程。可下载 collapsed 格式，供 flamegraph.pl 和 speedscope 使用 | `canOperate()`（开始、停止和读取采样结果） |
 | 堆直方图 | 执行 `GC.class_histogram`（只统计存活对象，**会触发一次 Full GC 停顿**），按占用字节显示前 N 个类；再次执行会显示与上一次相比的增长，便于排查内存泄漏。只保留上一次结果（最多 500 行），两次间隔至少 10 秒 | `canOperate()` |
 | 堆转储 | 检查磁盘剩余空间后，把存活对象的堆转储（`HotSpotDiagnosticMXBean.dumpHeap`）写到临时目录，以下载方式返回并删除文件；如果进程在下载中途退出，残留文件超过一天后会在下一次堆转储时删除。**会暂停应用**，文件大小可能接近堆大小 | `canOperate()` |
 | 配置来源 | 输入属性名（或按名称搜索，最多 200 条），显示解析占位符后的生效值，以及按优先级排列的所有定义了该属性的配置来源，并标出生效的那个。值**不做脱敏** | `canOperate()` |
-| 类来源 | 输入类名，显示应用类加载器能看到的所有副本、实际加载的类来自哪里以及类加载器链。“扫描重复类”会读取类路径上的 jar 和目录（类加载器暴露时也包括 Spring Boot 可执行 jar 中的嵌套 jar），列出出现在多个位置的类，并按 jar 对汇总；发现 500 个重复类或运行 20 秒后停止 | `canView()` |
+| 类来源 | 输入类名，显示应用类加载器能看到的所有副本、实际加载的类来自哪里以及类加载器链。“扫描重复类”会读取类路径上的 jar 和目录（类加载器暴露时也包括 Spring Boot 可执行 jar 中的嵌套 jar），列出出现在多个位置的类，并按 jar 对汇总；发现 500 个重复类或运行 20 秒后停止 | 查询：`canView()`；扫描重复类：`canOperate()` |
 
 ```yaml
 meerkat:
@@ -231,7 +231,7 @@ meerkat:
 ```
 
 > [!WARNING]
-> `canOperate()` 默认拒绝，内置策略也不开放：堆转储和配置值会暴露密钥，堆直方图和堆转储会暂停应用，修改日志级别会改变运行时行为。只授予可信的运维人员。
+> `canOperate()` 默认拒绝，内置策略也不开放：堆转储和配置值会暴露密钥，堆直方图和堆转储会暂停应用，CPU 采样和扫描重复类最长运行约一分钟并暴露代码结构，修改日志级别会改变运行时行为。只授予可信的运维人员。
 
 注意事项：
 
@@ -252,7 +252,7 @@ API 授权由 `ObservabilityAccessPolicy` 决定，应用定义该类型的 Bean
 | `canView()` | 查询 Trace、Metrics、存储状态和当前权限 | `true`，允许所有请求 |
 | `canClear()` | 清空 Trace 历史（`POST /api/meerkat/traces/clear`）和重置调用统计（`POST /api/meerkat/metrics/operations/reset`），并且需要同时通过 `canView()` | `false`，拒绝所有请求；页面隐藏“清空历史”和“重置统计”按钮 |
 | `canCapture()` | 流量抓取：开始、停止抓取和读取抓取记录（`/api/meerkat/capture/**`），并且需要同时通过 `canView()` | 默认拒绝（内置策略同样拒绝），覆盖 `canCapture()` 后允许；这是流量抓取唯一的开关 |
-| `canOperate()` | 工具箱中的敏感操作：修改日志级别、堆直方图（Full GC）、下载堆转储和读取配置值（`/api/meerkat/tools/**`），并且需要同时通过 `canView()` | `false`，拒绝所有请求，内置策略也不开放；工具箱页面禁用这些操作 |
+| `canOperate()` | 工具箱中的敏感或重操作：修改日志级别、CPU 采样、堆直方图（Full GC）、下载堆转储、读取配置值和扫描重复类（`/api/meerkat/tools/**`），并且需要同时通过 `canView()` | `false`，拒绝所有请求，内置策略也不开放；工具箱页面禁用这些操作 |
 
 `canClear()` 是默认方法，只需要限制查看时可以直接用 lambda，清空历史仍保持关闭：
 
@@ -287,6 +287,8 @@ private static boolean hasAnyRole(String... roles) {
             .anyMatch(authority -> List.of(roles).contains(authority.getAuthority()));
 }
 ```
+
+Meerkat 会以 403 拒绝浏览器从其他站点发来的会修改状态的 API 请求（`GET`、`HEAD`、`OPTIONS` 以外的方法）：`Sec-Fetch-Site` 不是 `same-origin` 或 `none` 的请求；对不发送该请求头的浏览器，则是 `Origin` 与请求的主机和端口不一致的请求。两个请求头都没有的请求（例如 curl 或服务间调用）不受影响。因此跨源页面（包括同一站点的其他端口或子域名）不能调用这些接口，请让页面和应用保持同源。
 
 如果应用启用了 Spring Security 的 CSRF 防护，清空历史的 POST 请求需要 CSRF 令牌：使用 `CookieCsrfTokenRepository` 时页面会自动读取 `XSRF-TOKEN` Cookie 并回传 `X-XSRF-TOKEN` 请求头，否则需要对该路径单独配置 CSRF 策略。
 

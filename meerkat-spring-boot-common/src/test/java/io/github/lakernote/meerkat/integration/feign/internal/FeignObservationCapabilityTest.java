@@ -40,6 +40,9 @@ class FeignObservationCapabilityTest {
         assertThat(context.getLowCardinalityKeyValue("uri").getValue()).isEqualTo("/items/{id}");
         assertThat(context.getLowCardinalityKeyValue("client.name").getValue()).isEqualTo("inventory-service");
         assertThat(context.getLowCardinalityKeyValue("status").getValue()).isEqualTo("404");
+        assertThat(context.getLowCardinalityKeyValue("outcome").getValue()).isEqualTo("CLIENT_ERROR");
+        assertThat(context.getLowCardinalityKeyValue("exception").getValue()).isEqualTo("none");
+        assertThat(keys(context)).isEqualTo(SPRING_CLIENT_KEYS);
     }
 
     @Test
@@ -53,8 +56,21 @@ class FeignObservationCapabilityTest {
 
         assertThatThrownBy(() -> client.execute(request("http://inventory/items/1"), new Request.Options()))
                 .isInstanceOf(IOException.class);
-        assertThat(stopped).singleElement().satisfies(context ->
-                assertThat(context.getError()).hasMessage("connection refused"));
+        assertThat(stopped).singleElement().satisfies(context -> {
+            assertThat(context.getError()).hasMessage("connection refused");
+            assertThat(context.getLowCardinalityKeyValue("exception").getValue()).isEqualTo("IOException");
+            assertThat(keys(context)).isEqualTo(SPRING_CLIENT_KEYS);
+        });
+    }
+
+    /** Spring's RestTemplate/RestClient use these keys for the same meter; Prometheus rejects mismatches. */
+    private static final java.util.Set<String> SPRING_CLIENT_KEYS =
+            java.util.Set.of("method", "uri", "client.name", "status", "exception", "outcome");
+
+    private static java.util.Set<String> keys(Observation.Context context) {
+        java.util.Set<String> keys = new java.util.HashSet<>();
+        context.getLowCardinalityKeyValues().forEach(keyValue -> keys.add(keyValue.getKey()));
+        return keys;
     }
 
     interface InventoryApi {

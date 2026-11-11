@@ -59,5 +59,6 @@ public final class ScopedSpan implements SpanHandle {
         if (!stopped.compareAndSet(false, true) || trace == null) return;
         if (span != null) trace.stopSpan(span);
         if (threadId == Thread.currentThread().getId()) TraceContext.restoreFrame(installed, previous);
+        else installed.closedTo = previous;
     }
 }

@@ -1,4 +1,6 @@
-import { $, authHeaders, initializeEmbeddedAuth, node, showNotice } from './common.js?v=20261106.11'
+import {
+  $, authHeaders, bearerToken, csrfToken, initializeEmbeddedAuth, loginRedirected, node, SESSION_EXPIRED_MESSAGE, showNotice
+} from './common.js?v=20261111.2'
 
 const API = new URL('../../api/meerkat/tools/', import.meta.url)
 const DENIED = t('没有查看的权限，请登录或检查 ObservabilityAccessPolicy')
@@ -32,6 +34,7 @@ async function call(path, options = {}, messages = {}) {
           : t('请求失败（HTTP {status}）', { status: response.status }))
     throw new Error(message)
   }
+  if (response.status !== 204 && loginRedirected(response)) throw new Error(SESSION_EXPIRED_MESSAGE)
   if (options.raw) return response
   return response.status === 204 ? null : response.json()
 }
@@ -121,7 +124,7 @@ async function refresh() {
   }
   $('operate-denied').hidden = status.canOperate
   document.querySelectorAll('button.operate').forEach(button => {
-    button.disabled = !status.canOperate
+    button.disabled = locked(button)
     button.title = status.canOperate ? '' : OPERATE_DENIED
   })
   $('logger-level').replaceChildren(...status.logLevels.map(level => node('option', null, level)))
@@ -234,7 +237,8 @@ function startProfile() {
         durationSeconds: Number($('profile-duration').value), intervalMs: Number($('profile-interval').value),
         excludeIdle: $('profile-exclude-idle').checked, includeBlocked: $('profile-include-blocked').checked,
         groupByThread: $('profile-by-thread').checked
-      }
+      },
+      operate: true
     }, { 429: t('已有一个采样正在进行，请等待其结束') })
     flameFocus = null
     await loadProfile(session.id)
@@ -258,7 +262,7 @@ const PROFILE_STATES = { RUNNING: '采样中', FINISHED: '已完成', STOPPED: '
 function renderProfile() {
   const session = profile.session
   const running = session.state === 'RUNNING'
-  $('profile-start').disabled = running
+  $('profile-start').disabled = locked($('profile-start'))
   $('profile-stop').hidden = !running
   const facts = $('profile-facts')
   facts.hidden = false
@@ -287,7 +291,7 @@ function renderProfile() {
 function stopProfile() {
   if (!profile) return
   guarded($('profile-stop'), async () => {
-    await call(`profiler/${encodeURIComponent(profile.session.id)}/stop`, { method: 'POST' }, { 404: t('采样已经结束') })
+    await call(`profiler/${encodeURIComponent(profile.session.id)}/stop`, { method: 'POST', operate: true }, { 404: t('采样已经结束') })
     await loadProfile(profile.session.id)
   })
 }
@@ -454,6 +458,52 @@ function renderHistogram(histogram) {
   $('histogram-rows').replaceChildren(...histogram.rows.map(histogramRow))
 }
 
+const HEAP_DUMP_ERRORS = {
+  429: t('已有一个堆 Dump 正在生成'), 507: t('服务器临时目录的磁盘空间不足'), 501: t('当前 JVM 不支持生成堆 Dump')
+}
+
+/**
+ * Posts a same-origin form into a hidden frame so the browser streams the dump straight to disk. A download never
+ * loads the frame; anything that does load it is an error page (or a login page), which is reported instead.
+ */
+function nativeHeapDump() {
+  const frame = node('iframe')
+  frame.name = `meerkat-heap-dump-${Date.now()}`
+  frame.hidden = true
+  const form = node('form')
+  form.method = 'POST'
+  form.action = new URL('heap/dump', API).href
+  form.target = frame.name
+  form.hidden = true
+  const csrf = csrfToken()
+  if (csrf) {
+    const field = node('input')
+    field.type = 'hidden'
+    field.name = '_csrf'
+    field.value = csrf
+    form.append(field)
+  }
+  document.body.append(frame, form)
+  frame.addEventListener('load', () => {
+    let text = ''
+    let redirected = false
+    try {
+      // The empty frame's own about:blank load, or a browser that reports a finished download as a load.
+      if (frame.contentWindow.location.href === 'about:blank') return
+      text = frame.contentDocument?.body?.textContent || ''
+      redirected = frame.contentWindow.location.pathname !== new URL(form.action).pathname
+    } catch { redirected = true }
+    if (!text.trim() && !redirected) return
+    const code = Number(/(?:"status"\s*:\s*|status=)(\d{3})/.exec(text)?.[1])
+    $('heap-dump-state').textContent = ''
+    showNotice(HEAP_DUMP_ERRORS[code] || (code === 401 || code === 403 ? OPERATE_DENIED
+      : redirected ? SESSION_EXPIRED_MESSAGE : t('下载失败（HTTP {status}）', { status: code || '?' })), true)
+    frame.remove()
+    form.remove()
+  })
+  form.submit()
+}
+
 function heapDump() {
   if (!window.confirm(t('生成堆 Dump 会让应用完全停顿，文件可能很大且包含敏感数据。确定继续？'))) return
   guarded($('heap-dump-start'), async () => {
@@ -465,14 +515,18 @@ function heapDump() {
         file = await window.showSaveFilePicker({ suggestedName: `heap-${Date.now()}.hprof` })
       } catch (error) {
         if (error.name === 'AbortError') return
-        // Not allowed here (for example a cross-origin iframe): fall back to an in-memory download.
+        // Not allowed here (for example a cross-origin iframe): fall back to a browser download.
       }
+    }
+    // A form cannot carry the embedding page's bearer token; only then is the dump buffered in memory.
+    if (!file && !bearerToken()) {
+      nativeHeapDump()
+      $('heap-dump-state').textContent = t('正在生成堆 Dump，完成后浏览器会开始下载，进度请看浏览器的下载列表')
+      return
     }
     $('heap-dump-state').textContent = t('正在生成和下载，请不要关闭页面…')
     try {
-      const response = await call('heap/dump', { method: 'POST', raw: true, operate: true }, {
-        429: t('已有一个堆 Dump 正在生成'), 507: t('服务器临时目录的磁盘空间不足'), 501: t('当前 JVM 不支持生成堆 Dump')
-      })
+      const response = await call('heap/dump', { method: 'POST', raw: true, operate: true }, HEAP_DUMP_ERRORS)
       if (file) await response.body.pipeTo(await file.createWritable())
       else await download(response, 'heap.hprof')
       $('heap-dump-state').textContent = t('已下载，服务器上的临时文件已删除')
@@ -571,7 +625,7 @@ function scanClasses() {
   guarded($('class-scan'), async () => {
     $('class-scan').textContent = t('扫描中…')
     try {
-      const scan = await call('classes/duplicates', { method: 'POST' }, { 429: t('已有一个扫描正在进行') })
+      const scan = await call('classes/duplicates', { method: 'POST', operate: true }, { 429: t('已有一个扫描正在进行') })
       renderScan(scan)
     } finally {
       $('class-scan').textContent = t('扫描重复类')

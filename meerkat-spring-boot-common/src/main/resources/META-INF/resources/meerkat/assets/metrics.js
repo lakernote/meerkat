@@ -1,6 +1,6 @@
 import {
-  $, categoryNames, countsSince, DISABLED_MESSAGE, formatValue, initializeEmbeddedAuth, lineChart, request, stepLabel
-} from './metrics-common.js?v=20261106.13'
+  $, categoryNames, countsSince, DISABLED_MESSAGE, formatValue, initializeEmbeddedAuth, lineChart, poll, request, stepLabel
+} from './metrics-common.js?v=20261111.2'
 
 const PERIODS = new Set(['1h', '24h', '7d', '30d'])
 const REFRESH_MS = 60000
@@ -109,7 +109,10 @@ const GROUPS = [
 ]
 const OPEN_STATE_KEY = 'meerkat:metrics:open-groups'
 let charts = []
-let timer
+let poller = null
+let disabled = false
+// Only the newest refresh renders; a slower one for a previous period is dropped.
+let refreshRequest = 0
 const sections = new Map()
 
 function storedOpenGroups() {
@@ -283,12 +286,14 @@ function storageText(storage) {
 
 async function refresh() {
   const period = $('period').value
+  const requestId = ++refreshRequest
   try {
     const [resources, storage, trends] = await Promise.all([
       request(`metrics/resources?period=${period}`),
       request('metrics/storage'),
       request(`metrics/operations/trends?period=${period}`).catch(() => null)
     ])
+    if (requestId !== refreshRequest) return true
     for (const chart of charts) chart.destroy()
     const resourceList = [...overviewCharts(trends, resources), ...resourceCharts(resources)]
     charts = resourceList
@@ -302,12 +307,18 @@ async function refresh() {
     $('instance').classList.add('connected')
     $('instance').lastChild.textContent = t(storage.persistent ? '已连接' : '存储降级')
     $('notice').hidden = true
+    return true
   } catch (error) {
+    if (requestId !== refreshRequest) return true
     $('instance').classList.remove('connected')
     $('instance').lastChild.textContent = t(error.message === DISABLED_MESSAGE ? '未启用' : '连接失败')
     $('notice').textContent = error.message
     $('notice').hidden = false
-    if (error.message === DISABLED_MESSAGE) window.clearInterval(timer)
+    if (error.message === DISABLED_MESSAGE) {
+      disabled = true
+      poller?.stop()
+    }
+    return false
   }
 }
 
@@ -317,6 +328,7 @@ $('period').addEventListener('change', () => {
   const url = new URL(window.location.href)
   url.searchParams.set('period', $('period').value)
   window.history.replaceState(null, '', url)
+  poller?.restart()
   refresh()
 })
 $('refresh').addEventListener('click', refresh)
@@ -325,5 +337,4 @@ $('collapse-all').addEventListener('click', () => setAllOpen(false))
 buildSections()
 await initializeEmbeddedAuth()
 await refresh()
-timer = window.setInterval(refresh, REFRESH_MS)
-window.addEventListener('beforeunload', () => window.clearInterval(timer), { once: true })
+if (!disabled) poller = poll(refresh, REFRESH_MS)

@@ -114,6 +114,34 @@ class JdbcTraceSqlTest {
     }
 
     @Test
+    void trailingBackslashInStandardLiteralCannotExposeTheNextLiteral() {
+        assertThat(describe("INSERT INTO t VALUES ('C:\\', 'password123', 5)"))
+                .isEqualTo("INSERT INTO t VALUES (?")
+                .doesNotContain("password123");
+        assertThat(describe("SELECT 'it\\'s', 'mysql-secret'"))
+                .isEqualTo("SELECT ?")
+                .doesNotContain("mysql-secret", "s'");
+        assertThat(describe("SELECT E'C:\\\\', 'escape-secret' FROM t"))
+                .isEqualTo("SELECT E?, ? FROM t")
+                .doesNotContain("escape-secret");
+        assertThat(describe("SELECT 'a\\b' FROM t WHERE x = 'y'"))
+                .isEqualTo("SELECT ? FROM t WHERE x = ?");
+    }
+
+    @Test
+    void redactsPostgresArrayConstructorsAndSubscripts() {
+        assertThat(describe("SELECT ARRAY['secret-token', 'other'] FROM t WHERE tags[1] = 'x'"))
+                .isEqualTo("SELECT ARRAY[?, ?] FROM t WHERE tags[?] = ?")
+                .doesNotContain("secret-token", "other");
+        assertThat(describe("SELECT (ARRAY['a'])['k-secret'], '{1}'::int[]"))
+                .doesNotContain("k-secret", "a'");
+        assertThat(describe("SELECT [order id] FROM dbo.[Orders] WHERE [x] = 'v'"))
+                .isEqualTo("SELECT [order id] FROM dbo.[Orders] WHERE [x] = ?");
+        assertThat(describe("SELECT ARRAY[[4111,1111],[2222,3333]] FROM t"))
+                .isEqualTo("SELECT ARRAY[[?,?],[?,?]] FROM t");
+    }
+
+    @Test
     void redactsDecimalScientificHexBinaryAndUuidValues() {
         String sql = "SELECT 6.022e+23, 0xDEADBEEF, 0b1010, 550e8400-e29b-41d4-a716-446655440000, "
                 + "$123.45, foo$2026";

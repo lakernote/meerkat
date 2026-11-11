@@ -1,7 +1,7 @@
 import {
-  $, DISABLED_MESSAGE, categoryNames, countsSince, formatBytes, formatMs, initializeEmbeddedAuth, lineChart, node, request,
-  showNotice
-} from './metrics-common.js?v=20261106.13'
+  $, DISABLED_MESSAGE, categoryNames, countsSince, formatBytes, formatMs, initializeEmbeddedAuth, lineChart, node, poll,
+  request, showNotice
+} from './metrics-common.js?v=20261111.2'
 
 const REFRESH_MS = 10000
 // Day ranges change slowly and read history files, so poll them less often.
@@ -36,8 +36,12 @@ let snapshot = null
 let activeCategory = ''
 let sortKey = 'totalMs'
 let sortDescending = true
-let timer
+let poller
+let disabled = false
 let searchTimer
+// Only the newest snapshot and trend request may render; an older one finishing late is dropped.
+let refreshRequest = 0
+let trendRequest = 0
 // The expanded row survives re-renders; its chart is reloaded on every refresh.
 let expanded = null
 let detail = null
@@ -150,13 +154,14 @@ function traceLink(target) {
 async function loadTrend() {
   if (!expanded) return
   const target = expanded
+  const requestId = ++trendRequest
   const period = TREND_PERIOD[$('window').value] || '1h'
   const body = detailRow().querySelector('.stats-detail-body')
   if (!detailCharts.length) body.replaceChildren(node('p', 'stats-detail-status', t('读取趋势中…')))
   try {
     const trend = await request(`metrics/operations/trend?category=${encodeURIComponent(target.category)}`
       + `&name=${encodeURIComponent(target.name)}&period=${period}`)
-    if (expanded !== target) return
+    if (expanded !== target || requestId !== trendRequest) return
     for (const chart of detailCharts) chart.destroy()
     const timestamps = trend.points.map(point => point.timestamp)
     const minute = trend.period === 'HOUR'
@@ -175,7 +180,7 @@ async function loadTrend() {
     grid.append(...detailCharts.map(chart => chart.card))
     body.replaceChildren(traceLink(target), grid)
   } catch (error) {
-    if (expanded === target) body.replaceChildren(node('p', 'stats-detail-status', error.message))
+    if (expanded === target && requestId === trendRequest) body.replaceChildren(node('p', 'stats-detail-status', error.message))
   }
 }
 
@@ -247,8 +252,10 @@ function render() {
 }
 
 async function refresh() {
+  const requestId = ++refreshRequest
   try {
     const next = await request(`metrics/operations?window=${encodeURIComponent($('window').value)}`)
+    if (requestId !== refreshRequest) return true
     if (!activeCategory) activeCategory = next.categories.find(item => item.count > 0)?.category || 'HTTP'
     snapshot = next
     $('instance').classList.add('connected')
@@ -257,14 +264,18 @@ async function refresh() {
     else showNotice(NOT_COLLECTING_MESSAGE, true)
     render()
     loadTrend()
+    return true
   } catch (error) {
+    if (requestId !== refreshRequest) return true
     $('instance').classList.remove('connected')
     $('instance').lastChild.textContent = t('连接失败')
     showNotice(error.message === DISABLED_MESSAGE ? error.message : t('{message}。请检查应用权限和服务状态。', { message: error.message }))
     if (error.message === DISABLED_MESSAGE) {
-      window.clearInterval(timer)
+      disabled = true
+      poller?.stop()
       $('instance').lastChild.textContent = t('未启用')
     }
+    return false
   }
 }
 
@@ -277,11 +288,8 @@ async function loadPermissions() {
   }
 }
 
-function schedule() {
-  window.clearInterval(timer)
-  timer = window.setInterval(refresh, $('window').value === '1h' || $('window').value === 'today'
-    ? REFRESH_MS : LONG_RANGE_REFRESH_MS)
-}
+const refreshInterval = () => $('window').value === '1h' || $('window').value === 'today'
+  ? REFRESH_MS : LONG_RANGE_REFRESH_MS
 
 function bind() {
   const requested = new URLSearchParams(window.location.search).get('window')
@@ -292,7 +300,7 @@ function bind() {
     window.history.replaceState(null, '', url)
     for (const chart of detailCharts) chart.destroy()
     detailCharts = []
-    schedule()
+    poller?.restart()
     refresh()
   })
   $('search').addEventListener('input', () => {
@@ -317,6 +325,6 @@ function bind() {
 }
 
 bind()
-initializeEmbeddedAuth().then(() => Promise.all([loadPermissions(), refresh()]))
-schedule()
-window.addEventListener('beforeunload', () => window.clearInterval(timer), { once: true })
+initializeEmbeddedAuth().then(() => Promise.all([loadPermissions(), refresh()])).then(() => {
+  if (!disabled) poller = poll(refresh, refreshInterval)
+})

@@ -48,6 +48,7 @@ import static io.github.lakernote.meerkat.metrics.internal.OperationStats.TOTAL;
  */
 public final class MetricsArchive {
     static final int FINE_DAYS = 2;
+    static final int TOTALS_CACHE_ENTRIES = 64;
     static final String OPERATIONS = "operations";
     static final String RESOURCES = "resources";
     private static final Logger log = LoggerFactory.getLogger(MetricsArchive.class);
@@ -65,6 +66,17 @@ public final class MetricsArchive {
     private long todaySize = -1;
     private LocalDate todayDate;
     private Map<OperationStats.Category, Map<String, long[]>> today;
+    /** Per-file bucket totals for trends, keyed by file and filter; small, and only reused while the file is unchanged. */
+    private final Map<String, CachedTotals> totalsCache = new LinkedHashMap<>(16, 0.75f, true) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<String, CachedTotals> eldest) {
+            return size() > TOTALS_CACHE_ENTRIES;
+        }
+    };
+
+    private record CachedTotals(long size, long modifiedMillis, List<BucketTotal> rows) { }
+
+    private record BucketTotal(long start, OperationStats.Category category, long[] cells) { }
 
     /** One operation's cells for one bucket, as collected from memory. */
     record OperationRow(OperationStats.Category category, String name, long[] cells) { }
@@ -135,6 +147,49 @@ public final class MetricsArchive {
         } catch (IOException | RuntimeException failure) {
             log.warn("Meerkat could not read operation metrics from {}: {}", directory, failure.toString());
         }
+    }
+
+    /**
+     * Visits the archived buckets of the local days {@code from} through {@code to}, summed per bucket and category
+     * over one operation ({@code onlyName}, with its category) or over every operation (both {@code null}); the
+     * visitor gets {@code onlyName} as the name and must not modify the cells. Each file is parsed once and reused
+     * until its size or modification time changes, so trend polls do not re-read unchanged days.
+     */
+    synchronized void scanOperationTotals(LocalDate from, LocalDate to, OperationStats.Category onlyCategory,
+                                          String onlyName, OperationVisitor visitor) {
+        if (!available) return;
+        try {
+            for (Map.Entry<LocalDate, Path> file : files(OPERATIONS).entrySet()) {
+                if (file.getKey().isBefore(from) || file.getKey().isAfter(to)) continue;
+                for (BucketTotal row : totals(file.getValue(), onlyCategory, onlyName)) {
+                    visitor.visit(row.start(), row.category(), onlyName, row.cells());
+                }
+            }
+        } catch (IOException | RuntimeException failure) {
+            log.warn("Meerkat could not read operation metrics from {}: {}", directory, failure.toString());
+        }
+    }
+
+    private List<BucketTotal> totals(Path file, OperationStats.Category onlyCategory, String onlyName)
+            throws IOException {
+        String key = file.getFileName() + "\n" + onlyCategory + "\n" + onlyName;
+        long size = Files.size(file);
+        long modified = Files.getLastModifiedTime(file).toMillis();
+        CachedTotals cached = totalsCache.get(key);
+        if (cached != null && cached.size() == size && cached.modifiedMillis() == modified) return cached.rows();
+        Map<Long, Map<OperationStats.Category, long[]>> buckets = new TreeMap<>();
+        parseOperations(file, (start, category, name, cells) -> {
+            if (onlyCategory != null && category != onlyCategory) return;
+            if (onlyName != null && !onlyName.equals(name)) return;
+            long[] into = buckets.computeIfAbsent(start, ignored -> new EnumMap<>(OperationStats.Category.class))
+                    .computeIfAbsent(category, ignored -> new long[CELLS]);
+            OperationStats.mergeCells(into, cells);
+        });
+        List<BucketTotal> rows = new ArrayList<>();
+        buckets.forEach((start, categories) -> categories.forEach((category, cells) ->
+                rows.add(new BucketTotal(start, category, cells))));
+        totalsCache.put(key, new CachedTotals(size, modified, List.copyOf(rows)));
+        return rows;
     }
 
     /** Visits every archived resource sample recorded on the local days {@code from} through {@code to}. */
@@ -211,6 +266,7 @@ public final class MetricsArchive {
 
     /** Deletes the saved operation history; resource history is kept. */
     synchronized void clearOperations() {
+        totalsCache.clear();
         closedDays = null;
         closedDaysSignature = null;
         today = null;

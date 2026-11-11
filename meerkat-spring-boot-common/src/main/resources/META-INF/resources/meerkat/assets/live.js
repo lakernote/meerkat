@@ -1,5 +1,5 @@
-import { authHeaders } from './common.js?v=20261106.11'
-import { $, api, formatBytes, formatMs, initializeEmbeddedAuth, kindName, node, request, showNotice } from './metrics-common.js?v=20261106.13'
+import { authHeaders, loginRedirected, SESSION_EXPIRED_MESSAGE } from './common.js?v=20261111.2'
+import { $, api, formatBytes, formatMs, initializeEmbeddedAuth, kindName, node, request, showNotice } from './metrics-common.js?v=20261111.2'
 
 const DENIED = t('没有查看实时诊断的权限，请登录或检查 ObservabilityAccessPolicy')
 const SOURCES = { HTTP: 'HTTP', JOB: t('定时任务'), KAFKA_CONSUMER: t('Kafka 消费') }
@@ -265,6 +265,7 @@ async function downloadDump(event) {
     if (!response.ok) throw new Error(response.status === 401 || response.status === 403 ? DENIED
       : response.status === 429 ? t('线程 Dump 刚刚生成过或正在生成，请 5 秒后再试')
         : t('下载失败（HTTP {status}）', { status: response.status }))
+    if (loginRedirected(response)) throw new Error(SESSION_EXPIRED_MESSAGE)
     const name = /filename="?([^";]+)"?/.exec(response.headers.get('Content-Disposition') || '')?.[1] || 'threads.txt'
     const url = URL.createObjectURL(await response.blob())
     const link = node('a')

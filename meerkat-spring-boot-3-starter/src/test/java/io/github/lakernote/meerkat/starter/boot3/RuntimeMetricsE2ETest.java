@@ -37,7 +37,7 @@ import static org.awaitility.Awaitility.await;
 @SpringBootTest(classes = RuntimeMetricsE2ETest.TestApplication.class,
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {
-                "meerkat.storage.directory=target/runtime-metrics-e2e"
+                "meerkat.storage.directory=target/runtime-metrics-e2e/${random.uuid}"
         })
 class RuntimeMetricsE2ETest {
     private static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()

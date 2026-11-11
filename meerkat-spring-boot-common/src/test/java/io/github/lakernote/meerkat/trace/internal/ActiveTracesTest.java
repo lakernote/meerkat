@@ -103,6 +103,23 @@ class ActiveTracesTest {
         assertThat(ActiveTraces.snapshot()).noneMatch(trace -> trace.traceId().startsWith("bulk-"));
     }
 
+    @Test
+    void dropsRootsThatNeverCompletedAfterTheMaximumAge() {
+        TraceTree leaked = new TraceTree("leaked", SpanKind.HTTP, "");
+        TraceTree fresh = new TraceTree("fresh", SpanKind.HTTP, "");
+        long now = System.nanoTime();
+        try {
+            assertThat(ActiveTraces.register(leaked, now)).isTrue();
+            assertThat(ActiveTraces.register(fresh, now + ActiveTraces.MAX_AGE_NANOS + 120_000_000_000L)).isTrue();
+
+            assertThat(ActiveTraces.snapshot()).extracting(ActiveTraces.ActiveTrace::name)
+                    .contains("fresh").doesNotContain("leaked");
+        } finally {
+            ActiveTraces.unregister(leaked);
+            ActiveTraces.unregister(fresh);
+        }
+    }
+
     private static ActiveTraces.ActiveTrace find(String traceId) {
         return ActiveTraces.snapshot().stream().filter(trace -> trace.traceId().equals(traceId)).findFirst()
                 .orElse(null);

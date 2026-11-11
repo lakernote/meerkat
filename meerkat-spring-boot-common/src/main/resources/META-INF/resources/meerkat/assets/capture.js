@@ -1,4 +1,4 @@
-import { $, initializeEmbeddedAuth, kindName, node, request, showNotice } from './common.js?v=20261106.11'
+import { $, initializeEmbeddedAuth, kindName, node, request, showNotice } from './common.js?v=20261111.2'
 
 const DENIED = t('没有流量抓取的权限，请登录或检查 ObservabilityAccessPolicy.canCapture')
 const DISABLED = t('流量抓取不可用：需要开启 meerkat.trace.enabled')
@@ -13,6 +13,8 @@ let selectedSession = ''
 let selectedRecord = ''
 let timer = null
 let recordsRequest = 0
+let statusRequest = 0
+let statusFailed = false
 
 function connected(ok) {
   $('instance').classList.toggle('connected', ok)
@@ -34,13 +36,25 @@ function ruleText(rule) {
 }
 
 async function refresh() {
+  const requestId = ++statusRequest
+  let next
   try {
-    status = await request('capture/status', {}, DENIED)
-    connected(true)
+    next = await request('capture/status', {}, DENIED)
   } catch (error) {
+    if (requestId !== statusRequest) return
     connected(false)
     showNotice(error.message, true)
+    statusFailed = true
+    // Keep polling while a capture was running, more slowly, so the page recovers once the server answers again.
+    schedule(REFRESH_MS * 2)
     return
+  }
+  if (requestId !== statusRequest) return
+  status = next
+  connected(true)
+  if (statusFailed) {
+    statusFailed = false
+    showNotice('')
   }
   if (!status.enabled) return blocked(DISABLED)
   if (!status.canCapture) return blocked(DENIED)
@@ -72,9 +86,9 @@ function blocked(message) {
   $('records-empty').hidden = false
 }
 
-function schedule() {
+function schedule(delay = REFRESH_MS) {
   clearTimeout(timer)
-  if (status?.sessions?.some(session => session.active)) timer = setTimeout(refresh, REFRESH_MS)
+  if (status?.sessions?.some(session => session.active)) timer = setTimeout(refresh, delay)
 }
 
 function renderSessions() {

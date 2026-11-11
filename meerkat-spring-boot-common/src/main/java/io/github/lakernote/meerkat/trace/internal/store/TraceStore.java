@@ -56,6 +56,8 @@ public final class TraceStore implements AutoCloseable {
     static final long SEARCH_SCAN_BYTES = 32L * 1024 * 1024;
     static final int MAX_PAGE_SIZE = 200;
     static final int MAX_QUERY_CHARS = 200;
+    /** Retention and the storage budget are also checked this often, so a quiet store still drops expired days. */
+    static final long LIMITS_CHECK_MILLIS = 60_000;
     private static final Logger log = LoggerFactory.getLogger(TraceStore.class);
     private static final Pattern SEGMENT_NAME = Pattern.compile("traces-(\\d{8})-(\\d+)\\.jsonl");
     private static final DateTimeFormatter DAY = DateTimeFormatter.BASIC_ISO_DATE;
@@ -86,6 +88,7 @@ public final class TraceStore implements AutoCloseable {
     private long hotBytes;
     private final AtomicLong nextId = new AtomicLong();
     private final AtomicLong restoredSequence = new AtomicLong();
+    private final AtomicLong limitsCheckedAtMillis = new AtomicLong();
     private final Object stateLock = new Object();
     private long generation;
     private volatile boolean persistent;
@@ -144,6 +147,7 @@ public final class TraceStore implements AutoCloseable {
                 Files.createDirectories(directory);
                 loadSegments();
                 enforceLimits();
+                limitsCheckedAtMillis.set(clock.millis());
                 resumeLastSegment();
             } catch (Exception failure) {
                 disablePersistence("open trace storage", failure);
@@ -175,6 +179,7 @@ public final class TraceStore implements AutoCloseable {
     /** Stores a completed entry trace, assigning its record ID and completion time. */
     public TraceRecord add(TraceRecord trace) {
         if (trace == null || !isEntrySource(trace.sourceType()) || !isDiagnostic(trace)) return null;
+        enforceLimitsPeriodically();
         Instant finishedAt = clock.instant();
         if (!admit(trace, finishedAt.toEpochMilli())) {
             throttled.incrementAndGet();
@@ -210,6 +215,7 @@ public final class TraceStore implements AutoCloseable {
 
     /** Lists traces newest first, matching the filters; {@code query.before} continues a previous page. */
     public TracePage search(TraceQuery query) {
+        enforceLimitsPeriodically();
         String text = normalizeQuery(query.text());
         Key before = Key.parse(query.before());
         int limit = Math.max(1, Math.min(query.limit(), MAX_PAGE_SIZE));
@@ -311,6 +317,7 @@ public final class TraceStore implements AutoCloseable {
     }
 
     public StorageStatus storageStatus() {
+        enforceLimitsPeriodically();
         long bytes = 0;
         synchronized (fileLock) {
             for (Segment segment : segments.values()) bytes += segment.size;
@@ -542,9 +549,31 @@ public final class TraceStore implements AutoCloseable {
         }
     }
 
+    /**
+     * Also enforces the limits at most once per {@link #LIMITS_CHECK_MILLIS}, not only when a segment opens. The
+     * check is queued on the writer, so callers never delete files themselves.
+     */
+    private void enforceLimitsPeriodically() {
+        if (!persistent) return;
+        long now = clock.millis();
+        long last = limitsCheckedAtMillis.get();
+        if (now - last < LIMITS_CHECK_MILLIS || !limitsCheckedAtMillis.compareAndSet(last, now)) return;
+        try {
+            writer.test(() -> {
+                synchronized (fileLock) {
+                    if (persistent) enforceLimits();
+                }
+            });
+        } catch (RuntimeException ignored) {
+            // The next interval tries again.
+        }
+    }
+
     /** Deletes whole segments that are past retention or beyond the storage budget, oldest first. */
     private void enforceLimits() {
         LocalDate oldestKept = LocalDate.now(clock).minusDays(retentionDays - 1L);
+        // An open segment that has expired is closed, so it can be deleted like any other.
+        if (current != null && current.id.day().isBefore(oldestKept)) closeCurrent();
         long total = 0;
         for (Segment segment : segments.values()) total += segment.size;
         List<Segment> expired = new ArrayList<>();
@@ -623,6 +652,9 @@ public final class TraceStore implements AutoCloseable {
                 long base = restoredSequence.addAndGet(-lines.size());
                 synchronized (stateLock) {
                     if (generation != startGeneration) return;
+                    // Deleted while being read: the deletion has already swept the index, so its lines must not
+                    // be listed with a location that can no longer be read.
+                    if (segment.deleted) continue;
                     for (int i = 0; i < lines.size(); i++) {
                         Restored line = lines.get(i);
                         Entry entry = new Entry(new Key(line.summary().finishedAt().toEpochMilli(), base + i),

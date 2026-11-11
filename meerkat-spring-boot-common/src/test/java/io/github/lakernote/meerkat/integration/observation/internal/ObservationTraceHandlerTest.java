@@ -85,6 +85,29 @@ class ObservationTraceHandlerTest {
     }
 
     @Test
+    void ignoresJdbcObservationsWhileMeerkatRecordsSqlItself() {
+        ObservationTraceHandler handler = new ObservationTraceHandler(
+                TraceStore.inMemory(1024 * 1024), new MeerkatProperties(), java.util.List.of());
+        handler.ignoreJdbcObservations();
+        ObservationRegistry registry = ObservationRegistry.create();
+        registry.observationConfig().observationHandler(handler);
+        AtomicReference<TraceCompletion> completion = new AtomicReference<>();
+
+        TraceContext.startRoot("GET /orders", SpanKind.HTTP);
+        String rootSpan = TraceContext.currentSpanId();
+        Observation observation = Observation.createNotStarted("jdbc.query", registry)
+                .highCardinalityKeyValue("jdbc.query[0]", "SELECT 1").start();
+        try (Observation.Scope ignored = observation.openScope()) {
+            assertThat(TraceContext.currentSpanId()).isEqualTo(rootSpan);
+        }
+        observation.stop();
+        TraceContext.currentRootTraceHandle().requireTree();
+        TraceContext.stopRoot(Long.MAX_VALUE, null, completion::set);
+
+        assertThat(completion.get().nodes()).flatExtracting(node -> node.children()).isEmpty();
+    }
+
+    @Test
     void redactsJdbcObservationSqlAndDriverFailureEvidence() {
         MeerkatProperties properties = new MeerkatProperties();
         ObservationRegistry registry = ObservationRegistry.create();
@@ -317,6 +340,87 @@ class ObservationTraceHandlerTest {
             assertThat(trace.name()).isEqualTo("/async · GET");
             assertThat(trace.sourceType()).isEqualTo("HTTP");
         });
+    }
+
+    @Test
+    void kafkaListenerStoppingBeforeItsScopeClosesStillRestoresTheThread() {
+        TraceStore history = TraceStore.inMemory(1024 * 1024);
+        ObservationRegistry registry = ObservationRegistry.create();
+        registry.observationConfig().observationHandler(new ObservationTraceHandler(history, new MeerkatProperties(),
+                java.util.List.of()));
+        for (int record = 0; record < 3; record++) {
+            // KafkaMessageListenerContainer: start, openScope, invoke, then stop() before scope.close().
+            Observation listener = Observation.createNotStarted("spring.kafka.listener", registry)
+                    .lowCardinalityKeyValue("spring.kafka.listener.id", "order-listener").start();
+            Observation.Scope scope = listener.openScope();
+            assertThat(TraceContext.active()).isTrue();
+            listener.stop();
+            scope.close();
+
+            assertThat(TraceContext.active()).isFalse();
+            assertThat(io.github.lakernote.meerkat.trace.TraceIdContext.currentTraceId()).isNull();
+            assertThat(((ThreadLocal<?>) org.springframework.test.util.ReflectionTestUtils.getField(TraceContext.class, "ROOT_SCOPES")).get())
+                    .isNull();
+        }
+    }
+
+    @Test
+    void nestedScopeOfTheRootKeepsTraceAndTraceIdUntilTheOuterScopeCloses() throws Exception {
+        MeerkatProperties properties = new MeerkatProperties();
+        properties.getTrace().setHttpSlowThreshold(java.time.Duration.ofMillis(1));
+        TraceStore history = TraceStore.inMemory(1024 * 1024);
+        ObservationRegistry registry = ObservationRegistry.create();
+        registry.observationConfig().observationHandler(new ObservationTraceHandler(history, properties, java.util.List.of()));
+        Observation root = Observation.createNotStarted("http.server.requests", registry)
+                .lowCardinalityKeyValue("http.route", "/nested").start();
+        String traceId;
+        try (Observation.Scope outer = root.openScope()) {
+            traceId = io.github.lakernote.meerkat.trace.TraceIdContext.currentTraceId();
+            // ContextSnapshot.wrap(...).run() on the same thread re-opens and closes the current Observation's scope.
+            try (Observation.Scope inner = root.openScope()) {
+                assertThat(TraceContext.active()).isTrue();
+            }
+            assertThat(TraceContext.active()).isTrue();
+            assertThat(io.github.lakernote.meerkat.trace.TraceIdContext.currentTraceId()).isEqualTo(traceId);
+            Observation.createNotStarted("spring.data.redis", registry).contextualName("GET")
+                    .lowCardinalityKeyValue("db.operation", "GET").start().stop();
+            Thread.sleep(5);
+        }
+        assertThat(TraceContext.active()).isFalse();
+        assertThat(io.github.lakernote.meerkat.trace.TraceIdContext.currentTraceId()).isNull();
+        root.stop();
+
+        assertThat(history.recent(10)).singleElement().satisfies(trace -> {
+            assertThat(trace.traceId()).isEqualTo(traceId);
+            assertThat(TraceNodeFixtures.names(history.find(traceId, "HTTP").treeNodes())).contains("GET");
+        });
+    }
+
+    @Test
+    void scopeOpenedOnAnotherThreadBindsTheRootOnlyForThatScope() {
+        ObservationRegistry registry = ObservationRegistry.create();
+        registry.observationConfig().observationHandler(new ObservationTraceHandler(TraceStore.inMemory(1024 * 1024),
+                new MeerkatProperties(), java.util.List.of()));
+        Observation root = Observation.createNotStarted("http.server.requests", registry)
+                .lowCardinalityKeyValue("http.route", "/dispatch").start();
+        String traceId;
+        try (Observation.Scope ignored = root.openScope()) {
+            traceId = io.github.lakernote.meerkat.trace.TraceIdContext.currentTraceId();
+        }
+
+        java.util.List<Object> seen = CompletableFuture.supplyAsync(() -> {
+            java.util.List<Object> values = new java.util.ArrayList<>();
+            try (Observation.Scope ignored = root.openScope()) {
+                values.add(TraceContext.active());
+                values.add(io.github.lakernote.meerkat.trace.TraceIdContext.currentTraceId());
+            }
+            values.add(TraceContext.active());
+            values.add(String.valueOf(io.github.lakernote.meerkat.trace.TraceIdContext.currentTraceId()));
+            return values;
+        }).join();
+        root.stop();
+
+        assertThat(seen).containsExactly(true, traceId, false, "null");
     }
 
     @Test

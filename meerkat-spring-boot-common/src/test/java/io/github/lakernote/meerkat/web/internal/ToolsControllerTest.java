@@ -216,11 +216,19 @@ class ToolsControllerTest {
 
     @Test
     void profilesCpuAndServesTheResult() {
-        ToolsController controller = controller(true, false);
+        ToolsController viewer = controller(true, false);
+        assertStatus(() -> viewer.startProfile(null, request()), HttpStatus.FORBIDDEN);
+        assertStatus(viewer::latestProfile, HttpStatus.FORBIDDEN);
+        assertStatus(() -> viewer.profile("any"), HttpStatus.FORBIDDEN);
+        assertStatus(() -> viewer.stopProfile("any"), HttpStatus.FORBIDDEN);
+        assertStatus(() -> viewer.collapsed("any"), HttpStatus.FORBIDDEN);
+        ToolsController controller = controller(true, true);
         assertThat(controller.latestProfile().getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
 
         CpuProfiler.SessionView session = controller.startProfile(
                 new ToolsController.ProfileRequest(1L, 10, true, false, true), request());
+        assertThat(controller.status().profile()).isNotNull();
+        assertThat(viewer.status().profile()).isNull();
         assertThat(session.operator()).isEqualTo("ops@10.0.0.1");
         assertThat(session.includeBlocked()).isTrue();
         assertThat(session.excludeIdle()).isFalse();
@@ -328,7 +336,9 @@ class ToolsControllerTest {
         ClassSources scanner = mock(ClassSources.class);
         ClassSources.DuplicateScan scan = new ClassSources.DuplicateScan(1, 1, 1, 1, false, null, List.of(), List.of(), List.of());
         when(scanner.scanDuplicates()).thenReturn(scan, (ClassSources.DuplicateScan) null);
-        ToolsController controller = new ToolsController(policy(true, false), true, logLevels, profiler, heap, config, scanner);
+        ToolsController viewer = new ToolsController(policy(true, false), true, logLevels, profiler, heap, config, scanner);
+        assertStatus(viewer::duplicateClasses, HttpStatus.FORBIDDEN);
+        ToolsController controller = new ToolsController(policy(true, true), true, logLevels, profiler, heap, config, scanner);
 
         assertThat(controller.duplicateClasses()).isSameAs(scan);
         assertStatus(controller::duplicateClasses, HttpStatus.TOO_MANY_REQUESTS);

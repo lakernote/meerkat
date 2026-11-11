@@ -216,11 +216,11 @@ The toolbox at `/meerkat/tools/` runs a few classic diagnostics on demand, witho
 | Tool | What it does | Permission |
 | --- | --- | --- |
 | Log levels | Lists loggers with their configured and effective levels (through Spring Boot's `LoggingSystem`, so Logback and Log4j2 both work) and sets a level for 1–60 minutes; it reverts to the previous configured level by itself, or at once with "Revert". At most 50 temporary levels at a time; changes are logged at WARN with the operator | listing: `canView()`; changing: `canOperate()` |
-| CPU flame graph | Samples the stacks of RUNNABLE threads every 10–100 ms (default 20 ms) for up to 60 s (default 10 s) and draws an interactive flame graph (click to zoom, hover for samples and %) with the hottest methods by self time. The call tree is capped at 20,000 nodes and 128 frames per stack; idle native waits (socket accept, epoll, ...) can be skipped and blocked/waiting threads included. The collapsed-stack download works with flamegraph.pl and speedscope | `canView()` |
+| CPU flame graph | Samples the stacks of RUNNABLE threads every 10–100 ms (default 20 ms) for up to 60 s (default 10 s) and draws an interactive flame graph (click to zoom, hover for samples and %) with the hottest methods by self time. The call tree is capped at 20,000 nodes and 128 frames per stack; idle native waits (socket accept, epoll, ...) can be skipped and blocked/waiting threads included. The collapsed-stack download works with flamegraph.pl and speedscope | `canOperate()` (starting, stopping and reading profiles) |
 | Heap histogram | Runs `GC.class_histogram` (live objects, so it **triggers a full GC pause**) and shows the top classes by bytes; the next histogram shows the growth since the previous one, which helps find leaks. Only the previous histogram (up to 500 rows) is kept, and histograms are at least 10 s apart | `canOperate()` |
 | Heap dump | Writes a dump of live objects (`HotSpotDiagnosticMXBean.dumpHeap`) to the temp directory after checking free space, streams it as a download and deletes it; dumps left over by a process that died mid-download are deleted on the next dump after a day. It **pauses the application** and can be as large as the heap | `canOperate()` |
 | Configuration sources | For a property name (or a name search, at most 200 results), shows the effective value with placeholders resolved and every property source that defines it, in precedence order, marking the one that wins. Values are **not redacted** | `canOperate()` |
-| Class sources | For a class name, shows every copy visible to the application class loader, where the loaded one came from and the class loader chain. "Scan duplicate classes" reads the jars and directories on the class path (including the nested jars of a Spring Boot executable jar when its class loader exposes them) and lists classes found in more than one place, grouped by jar pair; it stops after 500 duplicates or 20 s | `canView()` |
+| Class sources | For a class name, shows every copy visible to the application class loader, where the loaded one came from and the class loader chain. "Scan duplicate classes" reads the jars and directories on the class path (including the nested jars of a Spring Boot executable jar when its class loader exposes them) and lists classes found in more than one place, grouped by jar pair; it stops after 500 duplicates or 20 s | lookup: `canView()`; duplicate scan: `canOperate()` |
 
 ```yaml
 meerkat:
@@ -231,7 +231,7 @@ meerkat:
 ```
 
 > [!WARNING]
-> `canOperate()` is denied by default, including by the built-in policy: heap dumps and configuration values expose secrets, heap histograms and dumps pause the application, and log levels change runtime behaviour. Grant it only to trusted operators.
+> `canOperate()` is denied by default, including by the built-in policy: heap dumps and configuration values expose secrets, heap histograms and dumps pause the application, CPU profiling and duplicate class scans run for up to a minute and expose the code's structure, and log levels change runtime behaviour. Grant it only to trusted operators.
 
 What to know:
 
@@ -252,7 +252,7 @@ API authorization is decided by `ObservabilityAccessPolicy`; define a bean of th
 | `canView()` | Querying traces, metrics, storage status and current permissions | `true`, allows every request |
 | `canClear()` | Clearing trace history (`POST /api/meerkat/traces/clear`) and resetting operation statistics (`POST /api/meerkat/metrics/operations/reset`); `canView()` must also pass | `false`, denies every request; the dashboard hides "Clear history" and "Reset stats" |
 | `canCapture()` | Traffic capture: starting and stopping captures and reading captured records (`/api/meerkat/capture/**`); `canView()` must also pass | Denied, including by the built-in policy; override `canCapture()` to allow it. This is the only switch for traffic capture |
-| `canOperate()` | Sensitive toolbox operations: changing log levels, heap histograms (full GC), downloading heap dumps and reading configuration values (`/api/meerkat/tools/**`); `canView()` must also pass | `false`, denies every request, including the built-in policy; the toolbox disables those controls |
+| `canOperate()` | Sensitive or heavy toolbox operations: changing log levels, CPU profiling, heap histograms (full GC), downloading heap dumps, reading configuration values and scanning for duplicate classes (`/api/meerkat/tools/**`); `canView()` must also pass | `false`, denies every request, including the built-in policy; the toolbox disables those controls |
 
 `canClear()` is a default method, so a lambda is enough to restrict viewing while clearing stays off:
 
@@ -287,6 +287,8 @@ private static boolean hasAnyRole(String... roles) {
             .anyMatch(authority -> List.of(roles).contains(authority.getAuthority()));
 }
 ```
+
+Meerkat rejects state-changing API requests (anything but `GET`, `HEAD`, `OPTIONS`) that a browser sends from another site with 403: requests whose `Sec-Fetch-Site` is not `same-origin` or `none`, or, for browsers without that header, whose `Origin` does not match the request's host and port. Requests without either header, such as curl or server-to-server calls, are not affected. So a cross-origin page (including another port or subdomain of the same site) cannot call these endpoints; put the dashboard and the application on the same origin.
 
 If Spring Security CSRF protection is on, the clear and reset POST requests need a CSRF token. With `CookieCsrfTokenRepository` the dashboard reads the `XSRF-TOKEN` cookie and sends the `X-XSRF-TOKEN` header automatically; otherwise configure a CSRF policy for those paths.
 

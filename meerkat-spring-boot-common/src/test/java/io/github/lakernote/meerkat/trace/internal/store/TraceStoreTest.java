@@ -266,6 +266,62 @@ class TraceStoreTest {
     }
 
     @Test
+    void quietStoreStillDeletesExpiredSegments() throws Exception {
+        TraceStore store = store(1, 128 * MB);
+        store.start();
+        store.add(trace("old1").build());
+        store.add(trace("old2").build());
+        assertThat(segmentNames()).containsExactly("traces-20261105-1.jsonl");
+
+        clock.advance(Duration.ofDays(8));
+        store.storageStatus();
+
+        assertThat(segmentNames()).isEmpty();
+        assertThat(store.find("old1", "")).isNull();
+    }
+
+    @Test
+    void segmentDeletedWhileTheIndexIsRestoredIsNotListed() throws Exception {
+        TraceStore first = store(10, 128 * MB);
+        first.start();
+        first.add(trace("old").build());
+        first.close();
+
+        java.util.concurrent.CountDownLatch reading = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
+        TraceRecordJsonCodec blocking = new TraceRecordJsonCodec() {
+            @Override
+            TraceRecord read(byte[] line) throws IOException {
+                if (Thread.currentThread().getName().equals("meerkat-trace-index")) {
+                    reading.countDown();
+                    try {
+                        release.await(5, java.util.concurrent.TimeUnit.SECONDS);
+                    } catch (InterruptedException interrupted) {
+                        Thread.currentThread().interrupt();
+                    }
+                }
+                return super.read(line);
+            }
+        };
+        TraceStore restarted = new TraceStore(blocking, root.resolve("traces"), 7, 128 * MB, hotBytes(10),
+                task -> {
+                    task.run();
+                    return true;
+                }, () -> { }, clock);
+        restarted.start();
+        assertThat(reading.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+        clock.advance(Duration.ofDays(8));
+        restarted.add(trace("new").build());
+        assertThat(segmentNames()).containsExactly("traces-20261113-1.jsonl");
+        release.countDown();
+        awaitIndexed(restarted);
+
+        assertThat(restarted.search(query("all", "", "", "")).items()).extracting(TraceSummary::traceId)
+                .containsExactly("new");
+        assertThat(restarted.size()).isEqualTo(1);
+    }
+
+    @Test
     void deletesOldestSegmentsBeyondTheStorageBudget() throws Exception {
         TraceStore store = store(1, 1 * MB);
         store.start();

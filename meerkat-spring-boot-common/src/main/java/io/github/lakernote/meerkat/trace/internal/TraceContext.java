@@ -13,6 +13,7 @@ import java.util.function.Consumer;
 public final class TraceContext {
     public static final String CODE_ERROR_REASON = "CODE_ERROR";
     private static final ThreadLocal<ExecutionFrame> CURRENT_FRAME = new ThreadLocal<>();
+    private static final ThreadLocal<RootScope> ROOT_SCOPES = new ThreadLocal<>();
 
     private TraceContext() {
     }
@@ -35,6 +36,80 @@ public final class TraceContext {
         TraceTree trace = new TraceTree(name, kind, tag);
         CURRENT_FRAME.set(new ExecutionFrame(trace, trace.rootSpan(), 1));
         return true;
+    }
+
+    /** Creates a root trace without making it current; {@link #openRootScope} binds it to a thread. */
+    public static RootTraceHandle createRoot(String name, SpanKind kind, String tag) {
+        return new RootTraceHandle(new TraceTree(name, kind, tag));
+    }
+
+    /**
+     * Makes the root current on this thread for one Observation scope, saving what was current before. Scopes nest,
+     * so each open pushes one entry and the matching {@link #closeRootScope} pops it; an inner close therefore
+     * restores the outer position instead of dropping the trace. A thread already positioned inside this trace (for
+     * example in a transaction span) keeps that position.
+     *
+     * @param clearTraceIdOnOuterExit remove the MDC Trace ID when the outermost scope of this root closes, because
+     *                                the caller installed it when the root started on this thread
+     */
+    public static void openRootScope(RootTraceHandle handle, String traceId, boolean clearTraceIdOnOuterExit) {
+        if (handle == null) return;
+        TraceTree trace = handle.trace();
+        RootScope head = ROOT_SCOPES.get();
+        boolean outermost = !RootScope.contains(head, trace);
+        ExecutionFrame previous = CURRENT_FRAME.get();
+        String previousTraceId = outermost && clearTraceIdOnOuterExit ? null : TraceIdContext.currentTraceId();
+        ROOT_SCOPES.set(new RootScope(trace, previous, previousTraceId, outermost, head));
+        if (!trace.completed() && (previous == null || previous.trace != trace)) {
+            CURRENT_FRAME.set(new ExecutionFrame(trace, trace.rootSpan(), 1));
+        }
+        if (TraceIds.isValidTraceId(traceId)) MdcContext.putOrRemove(TraceIdContext.MDC_KEY, traceId);
+    }
+
+    /**
+     * Restores the position saved by the matching {@link #openRootScope}. Returns {@code true} when the outermost
+     * scope of this root on this thread closed. Scopes opened above the matching one and never closed are dropped
+     * so they cannot pin the thread; a close without any matching open is ignored.
+     */
+    public static boolean closeRootScope(RootTraceHandle handle) {
+        if (handle == null) return false;
+        RootScope match = ROOT_SCOPES.get();
+        while (match != null && match.trace != handle.trace()) match = match.next;
+        if (match == null) return false;
+        if (match.next == null) ROOT_SCOPES.remove();
+        else ROOT_SCOPES.set(match.next);
+        restore(match);
+        return match.outermost;
+    }
+
+    /** Drops every root scope on this thread, as Micrometer does when context propagation resets the thread. */
+    public static void resetRootScopes() {
+        RootScope scope = ROOT_SCOPES.get();
+        if (scope == null) return;
+        while (scope.next != null) scope = scope.next;
+        ROOT_SCOPES.remove();
+        restore(scope);
+    }
+
+    private static void restore(RootScope scope) {
+        if (scope.previousFrame == null) {
+            CURRENT_FRAME.remove();
+            CaptureThreadState.forgetStatement();
+        } else {
+            CURRENT_FRAME.set(scope.previousFrame);
+        }
+        MdcContext.putOrRemove(TraceIdContext.MDC_KEY, scope.previousTraceId);
+    }
+
+    /** One open root scope on a thread, linked to the scope opened before it. */
+    private record RootScope(TraceTree trace, ExecutionFrame previousFrame, String previousTraceId,
+                             boolean outermost, RootScope next) {
+        static boolean contains(RootScope scope, TraceTree trace) {
+            for (; scope != null; scope = scope.next) {
+                if (scope.trace == trace) return true;
+            }
+            return false;
+        }
     }
 
     /** Captures the current Trace ID and parent Span for propagation across an async boundary. */
@@ -192,6 +267,7 @@ public final class TraceContext {
         try {
             TraceCompletion result;
             TraceTree.CapturedSnapshot captured;
+            String traceId;
             synchronized (trace) {
                 if (trace.completed()) return;
                 long costMs = trace.completeRoot(slowThresholdMs, throwable);
@@ -200,8 +276,10 @@ public final class TraceContext {
                         captureTree ? trace.snapshotNodes() : List.of(), costMs, trace.slow(), trace.error(),
                         trace.diagnosticReasons(), trace.errorType(), trace.errorMessage(), trace.errorStackTrace());
                 captured = trace.takeCapture();
+                traceId = trace.traceId();
             }
-            String traceId = TraceIdContext.currentTraceId();
+            // The root may finish on another thread whose MDC holds a different request's Trace ID.
+            if (traceId.isBlank()) traceId = TraceIdContext.currentTraceId();
             completion.accept(result);
             if (captured != null) deliverCapture(captured, result);
             TraceDiagnosticLog.summarize(result, slowThresholdMs, throwable, traceId);
@@ -220,9 +298,16 @@ public final class TraceContext {
         }
     }
 
-    /** Restores {@code previous} only if {@code installed} is still the current frame of this thread. */
+    /**
+     * Closes {@code installed}, restoring {@code previous} if it is still the current frame of this thread. Scoped
+     * spans closed out of order are skipped, so the thread never stays positioned on a span that already ended.
+     */
     static void restoreFrame(ExecutionFrame installed, ExecutionFrame previous) {
-        if (CURRENT_FRAME.get() == installed) CURRENT_FRAME.set(previous);
+        installed.closedTo = previous;
+        if (CURRENT_FRAME.get() != installed) return;
+        ExecutionFrame target = previous;
+        while (target != null && target.closedTo != null) target = target.closedTo;
+        CURRENT_FRAME.set(target);
     }
 
     private static TraceTree currentTrace() {
@@ -248,7 +333,18 @@ public final class TraceContext {
         return parent.trace.addChild(parent.span, parent.depth, name, kind, tag);
     }
 
-    /** Immutable position in a trace tree. Frames are compared by identity when a scoped span closes. */
-    record ExecutionFrame(TraceTree trace, Span span, int depth) {
+    /** Position in a trace tree. Frames are compared by identity when a scoped span closes. */
+    static final class ExecutionFrame {
+        final TraceTree trace;
+        final Span span;
+        final int depth;
+        /** Set when the scoped span that installed this frame closes: the frame to fall back to instead. */
+        volatile ExecutionFrame closedTo;
+
+        ExecutionFrame(TraceTree trace, Span span, int depth) {
+            this.trace = trace;
+            this.span = span;
+            this.depth = depth;
+        }
     }
 }

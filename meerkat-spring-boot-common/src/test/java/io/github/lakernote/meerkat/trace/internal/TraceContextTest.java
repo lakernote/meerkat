@@ -17,6 +17,7 @@ class TraceContextTest {
 
     @AfterEach
     void clearContext() {
+        TraceContext.resetRootScopes();
         TraceContext.clear();
     }
 
@@ -113,6 +114,63 @@ class TraceContextTest {
         for (int i = spans.length - 1; i >= 0; i--) spans[i].close();
 
         assertThat(TraceContext.currentSpanId()).isEqualTo(rootId);
+    }
+
+    @Test
+    void closingAnOuterScopedSpanFirstLeavesTheThreadOnTheRootAfterTheInnerCloses() {
+        TraceContext.startRoot("GET /out-of-order", SpanKind.HTTP);
+        String rootId = TraceContext.currentSpanId();
+        ScopedSpan outer = TraceContext.startScopedSpan("outer", SpanKind.SERVICE, "");
+        ScopedSpan inner = TraceContext.startScopedSpan("inner", SpanKind.SERVICE, "");
+
+        outer.close();
+        assertThat(TraceContext.currentSpanId()).as("inner is still open").isEqualTo(inner.spanId());
+        inner.close();
+        inner.close();
+        outer.close();
+
+        assertThat(TraceContext.currentSpanId()).isEqualTo(rootId);
+        ScopedSpan next = TraceContext.startScopedSpan("next", SpanKind.SERVICE, "");
+        next.close();
+        TraceContext.currentRootTraceHandle().requireTree();
+        AtomicReference<TraceCompletion> result = new AtomicReference<>();
+        TraceContext.stopRoot(Long.MAX_VALUE, null, result::set);
+        assertThat(result.get().nodes()).singleElement().satisfies(root ->
+                assertThat(root.children()).extracting(child -> child.name()).containsExactly("outer", "next"));
+    }
+
+    @Test
+    void slowTraceLogUsesTheTraceIdOfTheTraceNotOfTheCompletingThread() throws Exception {
+        Logger logger = (Logger) LoggerFactory.getLogger(TraceContext.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        boolean additive = logger.isAdditive();
+        logger.setAdditive(false);
+        logger.addAppender(appender);
+        appender.start();
+        try {
+            RootTraceHandle handle = TraceContext.createRoot("GET /async", SpanKind.HTTP, "");
+            handle.trackActive("trace-owner-1", "HTTP", null);
+            Thread.sleep(5);
+            Thread completer = new Thread(() -> {
+                TraceIds.putTraceId("trace-other-thread");
+                try {
+                    handle.stop(1, null, ignored -> { });
+                } finally {
+                    TraceIds.clear();
+                }
+            });
+            completer.start();
+            completer.join();
+
+            assertThat(appender.list).singleElement().satisfies(event ->
+                    assertThat(event.getFormattedMessage())
+                            .contains("traceId=trace-owner-1")
+                            .doesNotContain("trace-other-thread"));
+        } finally {
+            logger.detachAppender(appender);
+            logger.setAdditive(additive);
+            appender.stop();
+        }
     }
 
     @Test
@@ -215,6 +273,86 @@ class TraceContextTest {
         public StackTraceElement[] getStackTrace() {
             stackReads.incrementAndGet();
             return super.getStackTrace();
+        }
+    }
+
+    @Test
+    void rootScopesNestAndRestoreThePositionAndTraceIdSavedWhenOpened() {
+        RootTraceHandle first = TraceContext.createRoot("GET /first", SpanKind.HTTP, "");
+        RootTraceHandle second = TraceContext.createRoot("GET /second", SpanKind.HTTP, "");
+        try {
+            TraceContext.openRootScope(first, "trace-first", true);
+            TraceContext.openRootScope(first, "trace-first", true);
+            assertThat(TraceContext.closeRootScope(first)).isFalse();
+            assertThat(TraceContext.currentRootTraceHandle().trace()).isSameAs(first.trace());
+
+            TraceContext.openRootScope(second, "trace-second", false);
+            assertThat(TraceContext.currentRootTraceHandle().trace()).isSameAs(second.trace());
+            assertThat(io.github.lakernote.meerkat.trace.TraceIdContext.currentTraceId()).isEqualTo("trace-second");
+            assertThat(TraceContext.closeRootScope(second)).isTrue();
+            assertThat(io.github.lakernote.meerkat.trace.TraceIdContext.currentTraceId()).isEqualTo("trace-first");
+
+            assertThat(TraceContext.closeRootScope(first)).isTrue();
+            assertThat(TraceContext.active()).isFalse();
+            assertThat(io.github.lakernote.meerkat.trace.TraceIdContext.currentTraceId()).isNull();
+            assertThat(TraceContext.closeRootScope(first)).isFalse();
+        } finally {
+            TraceIds.clear();
+        }
+    }
+
+    @Test
+    void closingAnOuterRootScopeDropsInnerScopesThatWereNeverClosed() {
+        RootTraceHandle outer = TraceContext.createRoot("GET /outer", SpanKind.HTTP, "");
+        RootTraceHandle leaked = TraceContext.createRoot("GET /leaked", SpanKind.HTTP, "");
+        try {
+            TraceContext.openRootScope(outer, "trace-outer", true);
+            TraceContext.openRootScope(leaked, "trace-leaked", false);
+
+            assertThat(TraceContext.closeRootScope(outer)).isTrue();
+            assertThat(TraceContext.active()).isFalse();
+            assertThat(io.github.lakernote.meerkat.trace.TraceIdContext.currentTraceId()).isNull();
+            assertThat(TraceContext.closeRootScope(leaked)).isFalse();
+        } finally {
+            TraceIds.clear();
+        }
+    }
+
+    @Test
+    void resettingRootScopesRestoresTheStateBeforeTheFirstScope() {
+        RootTraceHandle first = TraceContext.createRoot("GET /first", SpanKind.HTTP, "");
+        RootTraceHandle second = TraceContext.createRoot("GET /second", SpanKind.HTTP, "");
+        TraceIds.putTraceId("trace-before");
+        try {
+            TraceContext.openRootScope(first, "trace-first", false);
+            TraceContext.openRootScope(second, "trace-second", false);
+
+            TraceContext.resetRootScopes();
+            TraceContext.resetRootScopes();
+
+            assertThat(TraceContext.active()).isFalse();
+            assertThat(io.github.lakernote.meerkat.trace.TraceIdContext.currentTraceId()).isEqualTo("trace-before");
+            assertThat(TraceContext.closeRootScope(first)).isFalse();
+        } finally {
+            TraceIds.clear();
+        }
+    }
+
+    @Test
+    void rootScopeKeepsADeeperPositionInTheSameTrace() {
+        RootTraceHandle root = TraceContext.createRoot("GET /tx", SpanKind.HTTP, "");
+        try {
+            TraceContext.openRootScope(root, "trace-tx", true);
+            try (ScopedSpan transaction = TraceContext.startScopedSpan("tx", SpanKind.TRANSACTION, "")) {
+                String transactionSpan = TraceContext.currentSpanId();
+                TraceContext.openRootScope(root, "trace-tx", true);
+                assertThat(TraceContext.currentSpanId()).isEqualTo(transactionSpan);
+                TraceContext.closeRootScope(root);
+                assertThat(TraceContext.currentSpanId()).isEqualTo(transactionSpan);
+            }
+            TraceContext.closeRootScope(root);
+        } finally {
+            TraceIds.clear();
         }
     }
 }

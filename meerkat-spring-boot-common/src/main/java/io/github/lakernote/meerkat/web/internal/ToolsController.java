@@ -42,8 +42,9 @@ import java.time.Duration;
 import java.util.List;
 
 /**
- * Serves the toolbox page and its on-demand API. Read-only tools need the view permission; changing log levels,
- * downloading heap dumps and reading configuration values also need {@link ObservabilityAccessPolicy#canOperate()}.
+ * Serves the toolbox page and its on-demand API. Listing loggers and looking up a class need the view permission;
+ * changing log levels, CPU profiling, heap histograms and dumps, reading configuration values and scanning the class
+ * path for duplicates also need {@link ObservabilityAccessPolicy#canOperate()}.
  */
 @RestController
 public class ToolsController implements DisposableBean {
@@ -103,7 +104,7 @@ public class ToolsController implements DisposableBean {
         if (!enabled) return new Status(false, canOperate, false, List.of(), 0, 0, null, false, false);
         return new Status(true, canOperate, logLevels != null, logLevels == null ? List.of() : logLevels.levels(),
                 logLevels == null ? 0 : logLevels.maxDurationSeconds(), CpuProfiler.MAX_DURATION.toSeconds(),
-                profiler.latest(), heap.hasPrevious(), config != null);
+                canOperate ? profiler.latest() : null, heap.hasPrevious(), config != null);
     }
 
     // ---- log levels ----
@@ -137,12 +138,12 @@ public class ToolsController implements DisposableBean {
         return ResponseEntity.noContent().build();
     }
 
-    // ---- CPU profiler ----
+    // ---- CPU profiler: needs the operate permission because sampling costs CPU and stacks reveal the code ----
 
     @PostMapping(API + "/profiler")
     public CpuProfiler.SessionView startProfile(@RequestBody(required = false) ProfileRequest body,
                                                 HttpServletRequest request) {
-        requireEnabled();
+        requireOperate();
         ProfileRequest options = body == null ? new ProfileRequest(null, null, null, null, null) : body;
         CpuProfiler.SessionView session;
         try {
@@ -162,14 +163,14 @@ public class ToolsController implements DisposableBean {
 
     @GetMapping(API + "/profiler")
     public ResponseEntity<CpuProfiler.SessionView> latestProfile() {
-        requireEnabled();
+        requireOperate();
         CpuProfiler.SessionView latest = profiler.latest();
         return latest == null ? ResponseEntity.noContent().build() : ResponseEntity.ok(latest);
     }
 
     @GetMapping(API + "/profiler/{id}")
     public CpuProfiler.Profile profile(@PathVariable String id) {
-        requireEnabled();
+        requireOperate();
         CpuProfiler.Profile profile = profiler.profile(id);
         if (profile == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
         return profile;
@@ -177,7 +178,7 @@ public class ToolsController implements DisposableBean {
 
     @PostMapping(API + "/profiler/{id}/stop")
     public ResponseEntity<Void> stopProfile(@PathVariable String id) {
-        requireEnabled();
+        requireOperate();
         if (!profiler.stop(id)) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
         return ResponseEntity.noContent().build();
     }
@@ -185,7 +186,7 @@ public class ToolsController implements DisposableBean {
     /** The samples in the collapsed-stack format read by flamegraph.pl and speedscope. */
     @GetMapping(API + "/profiler/{id}/collapsed")
     public ResponseEntity<String> collapsed(@PathVariable String id) {
-        requireEnabled();
+        requireOperate();
         String collapsed = profiler.collapsed(id);
         if (collapsed == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
         return ResponseEntity.ok()
@@ -275,10 +276,13 @@ public class ToolsController implements DisposableBean {
         }
     }
 
-    /** Lists classes found in more than one jar; answers 429 while another scan runs. */
+    /**
+     * Lists classes found in more than one jar; answers 429 while another scan runs. Needs the operate permission
+     * because the scan reads every jar on the class path for up to 20 seconds.
+     */
     @PostMapping(API + "/classes/duplicates")
     public ClassSources.DuplicateScan duplicateClasses() {
-        requireEnabled();
+        requireOperate();
         ClassSources.DuplicateScan scan = classes.scanDuplicates();
         if (scan == null) throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "A scan is running");
         return scan;
@@ -357,7 +361,8 @@ public class ToolsController implements DisposableBean {
 
     /**
      * {@code canOperate} tells the page whether the sensitive tools are allowed; {@code logLevels} lists the levels
-     * the logging system accepts and {@code profile} is the running or latest profiling session.
+     * the logging system accepts and {@code profile} is the running or latest profiling session, shown only to
+     * operators.
      */
     public record Status(boolean enabled, boolean canOperate, boolean loggingSystem, List<String> logLevels,
                          long maxLogLevelSeconds, long maxProfileSeconds, CpuProfiler.SessionView profile,

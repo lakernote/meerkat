@@ -51,6 +51,11 @@ public final class RootTraceHandle {
         trace.track(traceId, source, resourcesAtStart);
     }
 
+    /** Records that the entry thread has returned while the request continues elsewhere. */
+    public void markDetached() {
+        trace.markDetached();
+    }
+
     public void rememberOwnedTraceId(String traceId) {
         trace.rememberOwnedTraceId(traceId);
     }

@@ -194,11 +194,32 @@ class ToolsE2ETest {
             assertThat(get(API + "/config/search?q=e2e").statusCode()).isEqualTo(403);
             assertThat(post(API + "/heap/dump", "").statusCode()).isEqualTo(403);
             assertThat(post(API + "/heap/histogram?limit=5", "").statusCode()).isEqualTo(403);
+            assertThat(post(API + "/profiler", "{}").statusCode()).isEqualTo(403);
+            assertThat(get(API + "/profiler").statusCode()).isEqualTo(403);
+            assertThat(post(API + "/classes/duplicates", "").statusCode()).isEqualTo(403);
+            assertThat(json(get(API + "/status")).path("profile").isObject()).isFalse();
             assertThat(get(API + "/loggers").statusCode()).isEqualTo(200);
             assertThat(get(API + "/classes?name=java.lang.String").statusCode()).isEqualTo(200);
         } finally {
             operate = true;
         }
+    }
+
+    @Test
+    void rejectsStateChangingRequestsFromOtherSites() throws Exception {
+        String revert = API + "/loggers/overrides/revert?logger=e2e.missing";
+        assertThat(post(revert, "", "Sec-Fetch-Site", "cross-site").statusCode()).isEqualTo(403);
+        assertThat(post(revert, "", "Sec-Fetch-Site", "same-site").statusCode()).isEqualTo(403);
+        HttpResponse<String> foreign = post(revert, "", "Origin", "https://evil.example");
+        assertThat(foreign.statusCode()).isEqualTo(403);
+        assertThat(foreign.headers().firstValue("Content-Type")).hasValueSatisfying(type ->
+                assertThat(type).contains("json"));
+        assertThat(post(revert, "", "Sec-Fetch-Site", "same-origin").statusCode()).isEqualTo(404);
+        assertThat(post(revert, "", "Origin", "http://localhost:" + port).statusCode()).isEqualTo(404);
+        assertThat(post(revert, "").statusCode()).isEqualTo(404);
+        assertThat(client.send(HttpRequest.newBuilder(URI.create("http://localhost:" + port + API + "/status"))
+                .header("Sec-Fetch-Site", "cross-site").build(), HttpResponse.BodyHandlers.ofString())
+                .statusCode()).isEqualTo(200);
     }
 
     private static void spin() {
@@ -221,10 +242,12 @@ class ToolsE2ETest {
                 HttpResponse.BodyHandlers.ofString());
     }
 
-    private HttpResponse<String> post(String path, String body) throws Exception {
-        return client.send(HttpRequest.newBuilder(URI.create("http://localhost:" + port + path))
+    private HttpResponse<String> post(String path, String body, String... headers) throws Exception {
+        HttpRequest.Builder request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + path))
                 .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(body)).build(), HttpResponse.BodyHandlers.ofString());
+                .POST(HttpRequest.BodyPublishers.ofString(body));
+        if (headers.length > 0) request.headers(headers);
+        return client.send(request.build(), HttpResponse.BodyHandlers.ofString());
     }
 
     private static Path createStorageDirectory() {

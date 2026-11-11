@@ -21,12 +21,12 @@ public class RestClientTraceAutoConfiguration {
 
     @Bean
     RestClientCustomizer meerkatTraceIdRestClientCustomizer(MeerkatProperties properties) {
-        return builder -> builder.requestInterceptor((request, body, execution) -> {
+        // An initializer, unlike an interceptor, does not make RestClient buffer every request body in memory.
+        return builder -> builder.requestInitializer(request -> {
             String traceId = TraceIdContext.currentTraceId();
             if (TraceIds.isValidTraceId(traceId)) {
                 request.getHeaders().set(properties.getTrace().getHeaderName(), traceId);
             }
-            return execution.execute(request, body);
         });
     }
 }

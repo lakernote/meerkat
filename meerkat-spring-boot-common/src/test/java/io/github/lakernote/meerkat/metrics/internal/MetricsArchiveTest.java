@@ -333,6 +333,63 @@ class MetricsArchiveTest {
         assertThat(memoryOnly.series(Period.HOUR).series().get("heap").get(59)).isEqualTo(2.0);
     }
 
+    @Test
+    void dayTrendsReadHistoryWithoutBlockingOtherViews() throws Exception {
+        OperationStats first = stats(100);
+        first.record(Category.REDIS, "GET", ms(1), false);
+        first.close();
+        clock.addAndGet(3 * DAY);
+        MetricsArchive archive = archive();
+        OperationStats stats = new OperationStats(100, archive, clock::get, ZoneOffset.UTC);
+        stats.record(Category.REDIS, "GET", ms(3), false);
+
+        java.util.concurrent.atomic.AtomicReference<Map<Category, OperationStats.Trend>> week =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        Thread reader = new Thread(() -> week.set(stats.trends(Period.WEEK)));
+        synchronized (archive) {
+            reader.start();
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+            while (reader.getState() != Thread.State.BLOCKED && System.nanoTime() < deadline) Thread.sleep(5);
+            assertThat(reader.getState()).isEqualTo(Thread.State.BLOCKED);
+
+            java.util.concurrent.CompletableFuture<OperationStats.Snapshot> hour =
+                    java.util.concurrent.CompletableFuture.supplyAsync(() -> stats.snapshot(Window.HOUR));
+            assertThat(hour.get(2, TimeUnit.SECONDS).categories()).isNotEmpty();
+        }
+        reader.join(5_000);
+        assertThat(week.get().get(Category.REDIS).points()).extracting(Point::count).containsOnly(0L, 1L)
+                .filteredOn(count -> count == 1L).hasSize(2);
+    }
+
+    @Test
+    void dayTrendsReuseUnchangedHistoryFilesAndRereadChangedOnes() throws Exception {
+        OperationStats first = stats(100);
+        first.record(Category.REDIS, "GET", ms(1), false);
+        first.record(Category.REDIS, "SET", ms(1), false);
+        first.close();
+        clock.addAndGet(3 * DAY);
+        OperationStats later = stats(100);
+        assertThat(total(later.trends(Period.WEEK).get(Category.REDIS))).isEqualTo(2);
+        assertThat(total(later.trend(Category.REDIS, "GET", Period.WEEK))).isEqualTo(1);
+
+        Path file = operations("20261105");
+        String original = Files.readString(file, StandardCharsets.UTF_8);
+        java.nio.file.attribute.FileTime modified = Files.getLastModifiedTime(file);
+        Files.writeString(file, "#".repeat(original.getBytes(StandardCharsets.UTF_8).length - 1) + "\n");
+        Files.setLastModifiedTime(file, modified);
+        assertThat(total(later.trends(Period.WEEK).get(Category.REDIS))).isEqualTo(2);
+        assertThat(total(later.trend(Category.REDIS, "GET", Period.WEEK))).isEqualTo(1);
+
+        String getLine = original.lines().filter(line -> line.endsWith("\tGET")).findFirst().orElseThrow();
+        Files.writeString(file, original + getLine + "\n");
+        assertThat(total(later.trends(Period.WEEK).get(Category.REDIS))).isEqualTo(3);
+        assertThat(total(later.trend(Category.REDIS, "GET", Period.WEEK))).isEqualTo(2);
+    }
+
+    private static long total(OperationStats.Trend trend) {
+        return trend.points().stream().mapToLong(Point::count).sum();
+    }
+
     private OperationStats stats(int maxKeys) {
         return new OperationStats(maxKeys, archive(), clock::get, ZoneOffset.UTC);
     }

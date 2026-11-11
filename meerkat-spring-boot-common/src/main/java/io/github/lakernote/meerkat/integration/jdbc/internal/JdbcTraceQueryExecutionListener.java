@@ -8,7 +8,10 @@ import io.github.lakernote.meerkat.trace.internal.ScopedSpan;
 import io.github.lakernote.meerkat.trace.internal.TraceContext;
 import net.ttddyy.dsproxy.ExecutionInfo;
 import net.ttddyy.dsproxy.QueryInfo;
+import net.ttddyy.dsproxy.listener.ChainListener;
 import net.ttddyy.dsproxy.listener.QueryExecutionListener;
+import net.ttddyy.dsproxy.proxy.ProxyConfig;
+import net.ttddyy.dsproxy.proxy.ProxyJdbcObject;
 
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
@@ -52,6 +55,7 @@ public final class JdbcTraceQueryExecutionListener implements QueryExecutionList
         try {
             boolean traceActive = TraceContext.active();
             if (!traceActive && operationStats == null) return;
+            if (recordedByInnerProxy(executionInfo.getStatement())) return;
 
             SqlNames names = sqlNames(queryInfoList);
             ScopedSpan span = null;
@@ -75,6 +79,26 @@ public final class JdbcTraceQueryExecutionListener implements QueryExecutionList
         } catch (Throwable ignored) {
             // Trace 回调不能影响 JDBC 调用。
         }
+    }
+
+    /**
+     * A routing or delegating DataSource bean wraps another DataSource bean, so both get a proxy reporting here.
+     * The outer proxy then executes on the inner proxy's statement; only the inner one records the query.
+     */
+    private boolean recordedByInnerProxy(Object statement) {
+        if (!(statement instanceof ProxyJdbcObject proxy)) return false;
+        ProxyConfig config = proxy.getProxyConfig();
+        return config != null && registeredIn(config.getQueryListener());
+    }
+
+    /** Whether this listener is {@code listener} or one of the listeners it chains. */
+    public boolean registeredIn(QueryExecutionListener listener) {
+        if (listener == this) return true;
+        if (!(listener instanceof ChainListener chain)) return false;
+        for (QueryExecutionListener chained : chain.getListeners()) {
+            if (registeredIn(chained)) return true;
+        }
+        return false;
     }
 
     private SqlNames sqlNames(List<QueryInfo> queries) {

@@ -4,7 +4,8 @@ package io.github.lakernote.meerkat.web;
  * Authorizes requests to the dashboard API.
  * <p>Methods are invoked on the request thread, so implementations may read the Spring Security context or the
  * current servlet request. Define a bean of this type to replace the built-in policy, which allows viewing and
- * denies clearing, traffic capture and sensitive diagnostics.</p>
+ * denies clearing, traffic capture and sensitive or heavy diagnostics.</p>
+ * <p>Independently of this policy, state-changing requests that a browser sends from another site are rejected.</p>
  */
 @FunctionalInterface
 public interface ObservabilityAccessPolicy {
@@ -30,10 +31,12 @@ public interface ObservabilityAccessPolicy {
     }
 
     /**
-     * Whether the current request may run sensitive diagnostics: change log levels, take heap histograms, download
-     * heap dumps and read configuration values. Only consulted after {@link #canView()} allows the request; denied
-     * unless overridden (including by the built-in policy) because heap dumps and configuration expose secrets, heap
-     * histograms and dumps pause the application, and log levels change runtime behaviour.
+     * Whether the current request may run sensitive or heavy diagnostics: change log levels, profile the CPU, take
+     * heap histograms, download heap dumps, read configuration values and scan the class path for duplicate classes.
+     * Only consulted after {@link #canView()} allows the request; denied unless overridden (including by the built-in
+     * policy) because heap dumps and configuration expose secrets, heap histograms and dumps pause the application,
+     * CPU profiling and class path scans run for up to a minute and reveal the code's structure, and log levels
+     * change runtime behaviour.
      */
     default boolean canOperate() {
         return false;
