@@ -23,8 +23,8 @@ import java.util.function.LongSupplier;
 /**
  * Lock-free call statistics per operation (endpoint, SQL template, remote call, Redis command, ...).
  *
- * <p>Each operation keeps two rings in memory: one-minute counters for the last hour's curve, and two hours of
- * 10-minute slices holding a log-scale latency histogram from which P95 is estimated (within one √2-wide bucket). Completed
+ * <p>Each operation keeps two rings in memory: one-minute counters for the last hour's curve, and a little over an
+ * hour of 10-minute slices holding a log-scale latency histogram from which P95 is estimated (within one √2-wide bucket). Completed
  * slices are appended to the {@link MetricsArchive} once a minute and the current one on shutdown, so rankings and
  * trends over days survive restarts. On startup the slices of the last hour are read back, so the one-hour views
  * also survive a restart; the minute curve spreads each of them evenly over its minutes. Histograms merge exactly, so averages and P95 stay correct over any range.
@@ -37,12 +37,15 @@ public final class OperationStats implements AutoCloseable {
     static final long MINUTE_MILLIS = 60 * 1000L;
     static final long SLICE_MILLIS = 10 * MINUTE_MILLIS;
     static final long HOUR_MILLIS = 60 * MINUTE_MILLIS;
-    /** Two hours of slices, so completed slices stay in memory until the next flush even after a slow one. */
-    static final int SLICES = 12;
+    /**
+     * The six slices of the one-hour views plus the one the current hour is leaving; a completed slice stays in memory
+     * for an hour, far longer than the one-minute flush interval.
+     */
+    static final int SLICES = 7;
     private static final int HOUR_SLICES = (int) (HOUR_MILLIS / SLICE_MILLIS);
     /** A little more than one hour of minutes, so the oldest displayed minute is never being overwritten. */
     static final int MINUTES = 64;
-    /** Names without a call for this many slices (2 hours) have left every in-memory window and give up their slot. */
+    /** Names without a call for this many slices (an hour) have left every in-memory window and give up their slot. */
     static final int IDLE_SLICES = SLICES;
     private static final long FLUSH_INTERVAL_SECONDS = 60;
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(OperationStats.class);
@@ -56,6 +59,8 @@ public final class OperationStats implements AutoCloseable {
     static final int ALLOCATED = 5;
     static final int MEASURED = 6;
     static final int FIRST_BUCKET = 7;
+    /** Minutes keep only count, errors, total and max: the one-hour curve shows nothing else. */
+    static final int SUMMARY = MAX + 1;
     /** Bucket {@code i} holds durations below {@code BUCKET_UPPER_NANOS[i]}; one extra bucket is unbounded. */
     private static final long[] BUCKET_UPPER_NANOS = bucketBounds();
     static final int CELLS = FIRST_BUCKET + BUCKET_UPPER_NANOS.length + 1;
@@ -249,9 +254,9 @@ public final class OperationStats implements AutoCloseable {
         Operation operation = operation(operations.get(category), normalizeName(name), currentSlice);
         operation.touch(currentSlice);
         Aggregate slice = operation.slice(currentSlice);
-        if (slice != null) slice.cells.add(nanos, error, measured, cpuNanos, allocatedBytes, true);
+        if (slice != null) slice.add(nanos, error, measured, cpuNanos, allocatedBytes, true);
         Minute minute = operation.minute(Math.floorDiv(now, MINUTE_MILLIS));
-        if (minute != null) minute.cells.add(nanos, error, measured, cpuNanos, allocatedBytes, false);
+        if (minute != null) minute.add(nanos, error, measured, cpuNanos, allocatedBytes, false);
     }
 
     /** Synchronized with {@link #flush} so a slice is never counted from both memory and the archive. */
@@ -343,7 +348,7 @@ public final class OperationStats implements AutoCloseable {
     /**
      * Drops names idle for {@link #IDLE_SLICES} so new names get their slots back. Their slices have already left
      * the in-memory ring, which is also the flush window, so no view loses data. A call racing with the eviction of
-     * a name idle for two hours may be lost; that is accepted to keep {@link #record} lock-free.
+     * a name idle for an hour may be lost; that is accepted to keep {@link #record} lock-free.
      */
     synchronized void evictIdle() {
         long idleBefore = Math.floorDiv(clockMillis.getAsLong(), SLICE_MILLIS) - IDLE_SLICES + 1;
@@ -436,8 +441,8 @@ public final class OperationStats implements AutoCloseable {
     }
 
     private static long[][] grid(Map<Category, long[][]> grids, Category category, Period period) {
-        // Minute buckets carry only the four summary cells; slices also carry the histogram.
-        int width = period == Period.HOUR ? FIRST_BUCKET : CELLS;
+        // Minute buckets carry only the summary cells; slices also carry CPU, allocation and the histogram.
+        int width = period == Period.HOUR ? SUMMARY : CELLS;
         return grids.computeIfAbsent(category, ignored -> new long[period.points][width]);
     }
 
@@ -454,7 +459,7 @@ public final class OperationStats implements AutoCloseable {
         for (int i = 0; i < minutes; i++) {
             long share = count / minutes + (i < count % minutes ? 1 : 0);
             if (share == 0) continue;
-            long[] minute = new long[FIRST_BUCKET];
+            long[] minute = new long[SUMMARY];
             minute[COUNT] = share;
             minute[ERRORS] = cells[ERRORS] / minutes + (i < cells[ERRORS] % minutes ? 1 : 0);
             minute[TOTAL] = Math.round(cells[TOTAL] * (share / (double) count));
@@ -662,16 +667,16 @@ public final class OperationStats implements AutoCloseable {
         }
     }
 
-    /** Atomic summary cells; slices also count the latency histogram, minutes keep only the summary. */
-    private static final class Cells {
+    /** Atomic cells; slices also count CPU, allocation and the latency histogram, minutes keep only the summary. */
+    private static class Cells {
         private final AtomicLongArray values;
 
         private Cells(int width) {
             values = new AtomicLongArray(width);
         }
 
-        private void add(long nanos, boolean error, boolean measured, long cpuNanos, long allocatedBytes,
-                         boolean histogram) {
+        void add(long nanos, boolean error, boolean measured, long cpuNanos, long allocatedBytes,
+                 boolean histogram) {
             // Slices derive the count from the histogram on read, saving one contended atomic per call.
             if (histogram) values.getAndIncrement(FIRST_BUCKET + bucket(nanos));
             else values.getAndIncrement(COUNT);
@@ -679,45 +684,42 @@ public final class OperationStats implements AutoCloseable {
             values.getAndAdd(TOTAL, nanos);
             long max = values.get(MAX);
             while (nanos > max && !values.compareAndSet(MAX, max, nanos)) max = values.get(MAX);
-            if (measured) {
+            if (measured && histogram) {
                 values.getAndAdd(CPU, cpuNanos);
                 values.getAndAdd(ALLOCATED, allocatedBytes);
                 values.getAndIncrement(MEASURED);
             }
         }
 
-        private long[] read() {
+        long[] read() {
             long[] copy = new long[values.length()];
             for (int cell = 0; cell < copy.length; cell++) copy[cell] = values.get(cell);
             return copy;
         }
     }
 
-    private static final class Aggregate {
+    private static final class Aggregate extends Cells {
         private final long epoch;
-        private final Cells cells = new Cells(CELLS);
 
         private Aggregate(long epoch) {
+            super(CELLS);
             this.epoch = epoch;
         }
 
-        private long[] read() {
-            long[] values = cells.read();
+        @Override
+        long[] read() {
+            long[] values = super.read();
             deriveCount(values);
             return values;
         }
     }
 
-    private static final class Minute {
+    private static final class Minute extends Cells {
         private final long epoch;
-        private final Cells cells = new Cells(FIRST_BUCKET);
 
         private Minute(long epoch) {
+            super(SUMMARY);
             this.epoch = epoch;
-        }
-
-        private long[] read() {
-            return cells.read();
         }
     }
 }

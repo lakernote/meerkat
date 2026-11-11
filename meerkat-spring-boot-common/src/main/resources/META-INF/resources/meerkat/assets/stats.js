@@ -231,7 +231,7 @@ function renderSummary() {
   const sinceText = Number.isNaN(since.getTime()) ? '' : t('自 {time} 起', { time: since.toLocaleString(MeerkatI18n.locale) })
   const limit = snapshot.keys >= snapshot.maxKeys ? t('，已达上限，新操作计入“其他”') : ''
   const memoryOnly = snapshot.window !== 'HOUR' && !snapshot.persistent
-    ? t(' · 存储目录不可用，只含内存中最近 2 小时') : ''
+    ? t(' · 存储目录不可用，只含内存中最近约 1 小时') : ''
   $('summary').textContent = `${sinceText} · ${t('内存中 {keys} 个操作（上限 {max}{limit}）', {
     keys: snapshot.keys.toLocaleString(), max: snapshot.maxKeys.toLocaleString(), limit })}${memoryOnly}`
 }

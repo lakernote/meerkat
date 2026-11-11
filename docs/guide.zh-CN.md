@@ -64,7 +64,7 @@ JDBC 采集会使用保留原数据源具体类型的代理，因此按 `HikariD
 | `meerkat.trace.max-storage-size` | `128MB` | 诊断 Trace 磁盘占用上限，超出时删除最旧的分段文件 |
 | `meerkat.trace.max-memory-size` | `32MB` | 内存中缓存最新 Trace 完整调用树的堆内存上限（按估算大小淘汰最旧的）；更早的记录在打开详情时从磁盘读取，存储不可用时直接丢弃 |
 | `meerkat.metrics.enabled` | `true` | 运行指标（调用统计与资源指标）总开关 |
-| `meerkat.metrics.max-operations` | `1000` | 所有类别合计最多统计的操作数，超出后新操作按类别并入“其他”行；2 小时没有调用的操作会释放名额 |
+| `meerkat.metrics.max-operations` | `500` | 所有类别合计最多统计的操作数，超出后新操作按类别并入“其他”行；1 小时没有调用的操作会释放名额 |
 | `meerkat.metrics.retention` | `30d` | 指标历史保留时长，须为整天数，范围 `1d` 至 `365d` |
 | `meerkat.metrics.max-storage-size` | `64MB` | 指标历史文件的磁盘上限，超出后删除最早的日期 |
 | `meerkat.web.enabled` | `true` | 页面和查询 API 开关 |
@@ -123,8 +123,8 @@ Trace 页面的 **异常聚合** 面板展示同样的数据：同类失败合�
 - 排行时间范围可选“最近 1 小时”“今天”“最近 7 天”和“最近 30 天”，日期按 JVM 默认时区划分。趋势的分辨率：最近 1 小时每分钟一个点，24 小时每 10 分钟，7 天和 30 天每小时。
 - P95 由对数分桶直方图估算，误差约 ±20%，且不会超过最大值；分钟级趋势不提供 P95。
 - SQL 统计不依赖活动 Trace，启动阶段和后台线程执行的 SQL 也会计入；Spring 的 `spring.jdbc` Observation 不重复计数。关闭 `trace.enabled` 后除 SQL 外不再统计，页面会提示。
-- 统计只用 Micrometer 定义的低基数字段和 SQL 模板命名，Kafka offset、原始 URL 等每次不同的值不会产生新行；远程调用没有 URI 模板时，统计名会去掉 URL 中的 query string 和 `#` 片段。操作数达到 `metrics.max-operations` 后，新操作并入该类别的“（其他：超出统计数量上限）”行；2 小时没有调用的操作会从内存移除并释放名额，已保存的历史不受影响。
-- 每次调用的统计开销约 50 ns，无锁实现；内存中保留最近 2 小时，每个操作约 10 KB。
+- 统计只用 Micrometer 定义的低基数字段和 SQL 模板命名，Kafka offset、原始 URL 等每次不同的值不会产生新行；远程调用没有 URI 模板时，统计名会去掉 URL 中的 query string 和 `#` 片段。操作数达到 `metrics.max-operations` 后，新操作并入该类别的“（其他：超出统计数量上限）”行；1 小时没有调用的操作会从内存移除并释放名额，已保存的历史不受影响。
+- 每次调用的统计开销约 50 ns，无锁实现；内存中保留最近约 1 小时，每个操作约 9 KB，默认 500 个操作全部占满时约 4.5 MB。
 
 ### 资源指标
 
@@ -159,7 +159,7 @@ Trace 页面的 **异常聚合** 面板展示同样的数据：同类失败合�
 
 - 两天前的文件会压缩一次：调用统计合并为每小时一行，资源指标按上述规则合并为每 10 分钟一个点，因此 30 天的数据通常只有几 MB。
 - 超过 `metrics.retention` 的日期会被删除；总大小超过 `metrics.max-storage-size` 时按天删除最早的数据。
-- 存储目录不可用（被其他实例占用或不可写）时只保存在内存，长范围只包含最近 2 小时，页面会提示。
+- 存储目录不可用（被其他实例占用或不可写）时只保存在内存，长范围只包含最近约 1 小时，页面会提示。
 - 每个实例各自保存，不跨实例汇总。`canClear()` 允许时调用排行页显示“重置统计”，会清空内存中和已保存的调用统计，资源指标历史保留。
 
 查询 API（均为 `GET`，前缀 `/api/meerkat/metrics`）：`/operations?window=1h|today|7d|30d`、`/operations/trend?category=HTTP&name=...&period=1h|24h|7d|30d`、`/operations/trends?period=...`、`/resources?period=...`、`/storage`；重置为 `POST /operations/reset`。

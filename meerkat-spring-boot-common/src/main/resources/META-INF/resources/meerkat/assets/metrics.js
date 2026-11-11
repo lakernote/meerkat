@@ -276,7 +276,7 @@ function overviewCharts(trends, resources) {
 }
 
 function storageText(storage) {
-  if (!storage.persistent) return t('历史存储不可用，只显示内存中最近 2 小时')
+  if (!storage.persistent) return t('历史存储不可用，只显示内存中最近约 1 小时')
   return t('历史存储 {used} / {max} · 保留 {days} 天', { used: formatValue(storage.storageBytes, 'bytes'),
     max: formatValue(storage.maxStorageBytes, 'bytes'), days: storage.retentionDays })
 }

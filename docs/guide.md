@@ -64,7 +64,7 @@ Common settings are listed below; anything not listed keeps the starter default.
 | `meerkat.trace.max-storage-size` | `128MB` | Disk limit for diagnostic traces; the oldest segment files are deleted beyond it |
 | `meerkat.trace.max-memory-size` | `32MB` | Heap limit for caching full call trees of the newest traces (oldest evicted by estimated size). Older records are read from disk when opened, or dropped when storage is unavailable |
 | `meerkat.metrics.enabled` | `true` | Master switch for runtime metrics (operation statistics and resource metrics) |
-| `meerkat.metrics.max-operations` | `1000` | Maximum operations tracked across all categories. Beyond it, new operations go to an "other" row per category; operations without calls for 2 hours release their slot |
+| `meerkat.metrics.max-operations` | `500` | Maximum operations tracked across all categories. Beyond it, new operations go to an "other" row per category; operations without calls for 1 hour release their slot |
 | `meerkat.metrics.retention` | `30d` | Metric history retention, whole days from `1d` to `365d` |
 | `meerkat.metrics.max-storage-size` | `64MB` | Disk limit for metric history; the oldest days are deleted beyond it |
 | `meerkat.web.enabled` | `true` | Dashboard and query API |
@@ -123,8 +123,8 @@ Runtime metrics answer "how is this instance doing overall, and which operations
 - Ranking windows are "Last hour", "Today", "Last 7 days" and "Last 30 days"; days follow the JVM default time zone. Trend resolution: one point per minute for the last hour, per 10 minutes for 24 hours, per hour for 7 and 30 days.
 - P95 is estimated from a log-bucketed histogram, accurate to about ±20% and never above the max. Minute-level trends have no P95.
 - SQL statistics do not need an active trace, so SQL run during startup or on background threads is counted too; Spring's `spring.jdbc` observation is not double-counted. With `trace.enabled` off, only SQL is counted, and the dashboard says so.
-- Names only use Micrometer low-cardinality tags and SQL templates, so per-call values such as Kafka offsets or raw URLs never create new rows. When a remote call has no URI template, the query string and `#` fragment are removed from the URL. Once `metrics.max-operations` is reached, new operations go to the category's "(Other: over the tracked-operation limit)" row; operations without calls for 2 hours are removed from memory and release their slot, while saved history is kept.
-- Recording costs about 50 ns per call and is lock-free. Memory holds the last 2 hours, about 10 KB per operation.
+- Names only use Micrometer low-cardinality tags and SQL templates, so per-call values such as Kafka offsets or raw URLs never create new rows. When a remote call has no URI template, the query string and `#` fragment are removed from the URL. Once `metrics.max-operations` is reached, new operations go to the category's "(Other: over the tracked-operation limit)" row; operations without calls for 1 hour are removed from memory and release their slot, while saved history is kept.
+- Recording costs about 50 ns per call and is lock-free. Memory holds about the last hour, about 9 KB per operation, or about 4.5 MB with all 500 default operations in use.
 
 ### Resource metrics
 
@@ -159,7 +159,7 @@ Operation statistics are written in 10-minute slices and resource metrics once a
 
 - Files older than two days are compacted once: operation statistics into one line per hour, resource metrics into 10-minute buckets combined as described above, so 30 days of data is usually only a few MB.
 - Days older than `metrics.retention` are deleted; when the total exceeds `metrics.max-storage-size`, the oldest days are deleted.
-- When the storage directory is unavailable (owned by another instance or not writable), data stays in memory only, longer windows only cover the last 2 hours, and the dashboard says so.
+- When the storage directory is unavailable (owned by another instance or not writable), data stays in memory only, longer windows only cover about the last hour, and the dashboard says so.
 - Each instance stores its own data; nothing is aggregated across instances. When `canClear()` allows it, the Operations page shows "Reset stats", which clears operation statistics in memory and on disk; resource metric history is kept.
 
 Query API (all `GET`, prefix `/api/meerkat/metrics`): `/operations?window=1h|today|7d|30d`, `/operations/trend?category=HTTP&name=...&period=1h|24h|7d|30d`, `/operations/trends?period=...`, `/resources?period=...`, `/storage`. Reset with `POST /operations/reset`.

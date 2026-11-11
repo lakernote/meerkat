@@ -136,9 +136,9 @@ public class MeerkatProperties {
         private boolean enabled = true;
         /**
          * Maximum number of distinct operations kept across all categories; later ones are merged per category.
-         * Operations without a call for two hours free their slot.
+         * Operations without a call for an hour free their slot.
          */
-        private int maxOperations = 1_000;
+        private int maxOperations = 500;
         /** History retention in whole days, between 1 and 365 days. A bare number is read as days. */
         @DurationUnit(ChronoUnit.DAYS)
         private Duration retention = Duration.ofDays(30);

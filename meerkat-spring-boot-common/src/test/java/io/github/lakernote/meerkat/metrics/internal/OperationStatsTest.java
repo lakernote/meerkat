@@ -106,13 +106,13 @@ class OperationStatsTest {
 
         assertThat(category(Window.HOUR, Category.REMOTE).count()).isEqualTo(2);
 
-        clock.addAndGet(40 * MINUTE);
+        clock.addAndGet(35 * MINUTE);
         Row lastHour = category(Window.HOUR, Category.REMOTE).rows().get(0);
         assertThat(lastHour.count()).isEqualTo(1);
         assertThat(lastHour.maxMs()).isEqualTo(200.0);
         assertThat(category(Window.TODAY, Category.REMOTE).count()).isEqualTo(2);
 
-        // 2023-11-14T22:13Z + 130 minutes is the next UTC day, which starts empty.
+        // 2023-11-14T22:13Z + 125 minutes is the next UTC day, which starts empty.
         clock.addAndGet(60 * MINUTE);
         assertThat(category(Window.HOUR, Category.REMOTE).rows()).isEmpty();
         assertThat(category(Window.TODAY, Category.REMOTE).rows()).isEmpty();
@@ -129,8 +129,8 @@ class OperationStatsTest {
         var hour = stats.snapshot(Window.HOUR);
         assertThat(hour.since()).isAfter(Instant.ofEpochMilli(clock.get() - 61 * MINUTE))
                 .isBeforeOrEqualTo(Instant.ofEpochMilli(clock.get() - 50 * MINUTE));
-        // Without an archive the day windows cover only the two hours of slices kept in memory.
-        long oldestSlice = Math.floorDiv(clock.get(), 600_000L) * 600_000L - 110 * MINUTE;
+        // Without an archive the day windows cover only the slices kept in memory, a little over an hour.
+        long oldestSlice = Math.floorDiv(clock.get(), 600_000L) * 600_000L - 60 * MINUTE;
         long midnight = java.time.LocalDate.ofInstant(Instant.ofEpochMilli(clock.get()), java.time.ZoneOffset.UTC)
                 .atStartOfDay(java.time.ZoneOffset.UTC).toInstant().toEpochMilli();
         assertThat(stats.snapshot(Window.TODAY).since()).isEqualTo(Instant.ofEpochMilli(Math.max(oldestSlice, midnight)));
@@ -139,7 +139,7 @@ class OperationStatsTest {
     }
 
     @Test
-    void namesIdleForTwoHoursGiveTheirSlotBack() {
+    void namesIdleForAnHourGiveTheirSlotBack() {
         OperationStats limited = new OperationStats(2, clock::get);
         limited.record(Category.REMOTE, "GET a", ms(1), false);
         limited.record(Category.REMOTE, "GET b", ms(1), false);
@@ -148,13 +148,13 @@ class OperationStatsTest {
         limited.evictIdle();
         assertThat(limited.snapshot(Window.HOUR).keys()).isEqualTo(2);
 
-        clock.addAndGet(70 * MINUTE);
+        clock.addAndGet(20 * MINUTE);
         limited.evictIdle();
         assertThat(limited.snapshot(Window.HOUR).keys()).isEqualTo(1);
         limited.record(Category.REMOTE, "GET c", ms(1), false);
 
         assertThat(category(limited, Window.HOUR, Category.REMOTE).rows()).extracting(Row::name)
-                .containsExactly("GET c");
+                .containsExactlyInAnyOrder("GET b", "GET c");
         assertThat(limited.snapshot(Window.HOUR).keys()).isEqualTo(2);
     }
 

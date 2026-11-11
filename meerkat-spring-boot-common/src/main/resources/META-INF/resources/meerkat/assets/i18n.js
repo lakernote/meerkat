@@ -204,7 +204,7 @@
     '所选时间范围内还没有{category}调用': 'Nothing recorded for {category} in the selected time range',
     '自 {time} 起': 'Since {time}',
     '，已达上限，新操作计入“其他”': '; limit reached, new operations count as "Other"',
-    ' · 存储目录不可用，只含内存中最近 2 小时': ' · Storage directory unavailable; only the last 2 hours in memory',
+    ' · 存储目录不可用，只含内存中最近约 1 小时': ' · Storage directory unavailable; only about the last hour in memory',
     '内存中 {keys} 个操作（上限 {max}{limit}）': '{keys} operations in memory (limit {max}{limit})',
     '没有重置统计的权限，请检查 ObservabilityAccessPolicy#canClear 或 CSRF 配置':
       'No permission to reset stats. Check ObservabilityAccessPolicy#canClear or the CSRF setup',
@@ -338,7 +338,7 @@
     'HTTP 连接、网络流量、HTTP 会话': 'HTTP connections, network traffic, HTTP sessions',
     '磁盘空间、文件句柄、已加载类、运行时长': 'Disk space, file descriptors, loaded classes, uptime',
     '{n} 个图表': '{n} charts',
-    '历史存储不可用，只显示内存中最近 2 小时': 'History storage unavailable; showing only the last 2 hours in memory',
+    '历史存储不可用，只显示内存中最近约 1 小时': 'History storage unavailable; showing only about the last hour in memory',
     '历史存储 {used} / {max} · 保留 {days} 天': 'History storage {used} / {max} · kept {days} days',
     '还没有资源指标：指标每分钟采样一次，请稍后刷新': 'No resource metrics yet: they are recorded every minute, so refresh shortly',
     // Live page
