@@ -91,7 +91,7 @@ class JdbcTraceQueryExecutionListenerTest {
         listener.beforeQuery(execution, queries);
         listener.afterQuery(execution, queries);
         TraceContext.currentRootTraceHandle().requireTree();
-        TraceContext.stopRoot(0, "test", null, completion::set);
+        TraceContext.stopRoot(0, null, completion::set);
 
         assertThat(completion.get().tree())
                 .contains("SQL SELECT", "primary · SELECT ?")
@@ -111,7 +111,7 @@ class JdbcTraceQueryExecutionListenerTest {
         single.beforeQuery(execution, queries);
         single.afterQuery(execution, queries);
         TraceContext.currentRootTraceHandle().requireTree();
-        TraceContext.stopRoot(0, "test", null, completion::set);
+        TraceContext.stopRoot(0, null, completion::set);
 
         assertThat(completion.get().tree()).contains("tag=\"SELECT ?\"").doesNotContain("dataSource");
     }
@@ -131,7 +131,7 @@ class JdbcTraceQueryExecutionListenerTest {
         listener.beforeQuery(execution, queries);
         listener.afterQuery(execution, queries);
         TraceContext.currentRootTraceHandle().requireTree();
-        TraceContext.stopRoot(0, "test", null, completion::set);
+        TraceContext.stopRoot(0, null, completion::set);
 
         TraceCompletion result = completion.get();
         assertThat(result.error()).isTrue();
@@ -158,7 +158,7 @@ class JdbcTraceQueryExecutionListenerTest {
         listener.beforeQuery(execution, queries);
         listener.afterQuery(execution, queries);
         TraceContext.currentRootTraceHandle().requireTree();
-        TraceContext.stopRoot(0, "test", failure, completion::set);
+        TraceContext.stopRoot(0, failure, completion::set);
 
         assertThat(completion.get().error()).isTrue();
         assertThat(completion.get().errorMessage()).isEqualTo("JDBC query failed");

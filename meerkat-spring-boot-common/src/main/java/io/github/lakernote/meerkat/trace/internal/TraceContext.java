@@ -5,7 +5,6 @@ import io.github.lakernote.meerkat.trace.TraceIdContext;
 
 import java.util.List;
 import java.util.function.Consumer;
-import java.util.function.Supplier;
 
 /**
  * 管理 Trace 树和当前执行位置。
@@ -169,14 +168,13 @@ public final class TraceContext {
         return startScopedSpan(name, kind, tag);
     }
 
-    public static void stopRoot(long slowThresholdMs, String description) {
-        stopRoot(slowThresholdMs, description, null, completion -> { });
+    public static void stopRoot(long slowThresholdMs) {
+        stopRoot(slowThresholdMs, null, completion -> { });
     }
 
-    public static void stopRoot(long slowThresholdMs, String description, Throwable throwable,
-                                Consumer<TraceCompletion> completion) {
+    public static void stopRoot(long slowThresholdMs, Throwable throwable, Consumer<TraceCompletion> completion) {
         TraceTree trace = currentTrace();
-        if (trace != null) completeRoot(trace, slowThresholdMs, () -> description, throwable, completion);
+        if (trace != null) completeRoot(trace, slowThresholdMs, throwable, completion);
     }
 
     public static void clear() {
@@ -189,7 +187,7 @@ public final class TraceContext {
         return current == null ? "" : current.span.spanId();
     }
 
-    static void completeRoot(TraceTree trace, long slowThresholdMs, Supplier<String> description, Throwable throwable,
+    static void completeRoot(TraceTree trace, long slowThresholdMs, Throwable throwable,
                              Consumer<TraceCompletion> completion) {
         try {
             TraceCompletion result;
@@ -206,7 +204,7 @@ public final class TraceContext {
             String traceId = TraceIdContext.currentTraceId();
             completion.accept(result);
             if (captured != null) deliverCapture(captured, result);
-            TraceDiagnosticLog.summarize(result, description, slowThresholdMs, throwable, traceId);
+            TraceDiagnosticLog.summarize(result, slowThresholdMs, throwable, traceId);
         } finally {
             ExecutionFrame current = CURRENT_FRAME.get();
             if (current != null && current.trace == trace) CURRENT_FRAME.remove();

@@ -69,7 +69,7 @@ class JdbcConcreteTypeCompatibilityE2ETest {
                     .queryForObject("SELECT answer FROM jdbc_probe WHERE id = 1", Integer.class)).isEqualTo(42);
         } finally {
             TraceContext.currentRootTraceHandle().requireTree();
-            TraceContext.stopRoot(0, "test", null, trace::set);
+            TraceContext.stopRoot(0, null, trace::set);
         }
         assertThat(trace.get()).isNotNull();
         assertThat(trace.get().tree()).contains("SQL SELECT");
@@ -87,7 +87,7 @@ class JdbcConcreteTypeCompatibilityE2ETest {
                     .isEqualTo(literalSecret);
         } finally {
             TraceContext.currentRootTraceHandle().requireTree();
-            TraceContext.stopRoot(0, "test", null, statementTrace::set);
+            TraceContext.stopRoot(0, null, statementTrace::set);
         }
         assertThat(statementTrace.get().tree())
                 .contains("SQL SELECT", "SELECT ?")
@@ -101,7 +101,7 @@ class JdbcConcreteTypeCompatibilityE2ETest {
                     "SELECT CAST(? AS VARCHAR)", String.class, boundSecret)).isEqualTo(boundSecret);
         } finally {
             TraceContext.currentRootTraceHandle().requireTree();
-            TraceContext.stopRoot(0, "test", null, preparedTrace::set);
+            TraceContext.stopRoot(0, null, preparedTrace::set);
         }
         assertThat(preparedTrace.get().tree())
                 .contains("SQL SELECT", "SELECT CAST(? AS VARCHAR)")
@@ -118,7 +118,7 @@ class JdbcConcreteTypeCompatibilityE2ETest {
             failure = thrown;
         } finally {
             TraceContext.currentRootTraceHandle().requireTree();
-            TraceContext.stopRoot(0, "test", failure, failedTrace::set);
+            TraceContext.stopRoot(0, failure, failedTrace::set);
         }
 
         assertThat(failure).isNotNull();

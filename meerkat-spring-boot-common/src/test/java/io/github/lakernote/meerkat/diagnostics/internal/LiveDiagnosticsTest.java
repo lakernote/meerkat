@@ -31,7 +31,7 @@ class LiveDiagnosticsTest {
                 started.countDown();
                 awaitQuietly(release);
             }
-            TraceContext.stopRoot(0, "test");
+            TraceContext.stopRoot(0);
         }, "live-request-worker");
         worker.start();
         try {
@@ -68,7 +68,7 @@ class LiveDiagnosticsTest {
             assertThat(request.threadState()).isNull();
             assertThat(request.cpuTimeMs()).isEqualTo(-1);
         } finally {
-            handle.stop(0, () -> "test", null, completion -> { });
+            handle.stop(0, null, completion -> { });
         }
     }
 

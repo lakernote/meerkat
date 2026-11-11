@@ -38,7 +38,7 @@ class RedisCaptureTest {
     }
 
     private Map<String, String> redisCaptures() {
-        TraceContext.stopRoot(Long.MAX_VALUE, "test");
+        TraceContext.stopRoot(Long.MAX_VALUE);
         TraceNode root = captured.get().get(0);
         assertThat(root.children()).hasSize(1);
         return root.children().get(0).captures();
@@ -77,7 +77,7 @@ class RedisCaptureTest {
         AtomicReference<io.github.lakernote.meerkat.trace.internal.TraceCompletion> completion =
                 new AtomicReference<>();
         processor.wrap(connection(null)).get(KEY);
-        TraceContext.stopRoot(0, "test", null, completion::set);
+        TraceContext.stopRoot(0, null, completion::set);
 
         assertThat(completion.get().nodes().get(0).children()).singleElement()
                 .satisfies(node -> assertThat(node.captures()).isEmpty());

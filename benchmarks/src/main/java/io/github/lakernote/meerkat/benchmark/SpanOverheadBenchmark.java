@@ -52,7 +52,7 @@ public class SpanOverheadBenchmark {
         for (int i = 0; i < SPANS_PER_TRACE; i++) {
             TraceBlock.run("work", () -> blackhole.consume(1));
         }
-        TraceContext.stopRoot(Long.MAX_VALUE, "benchmark");
+        TraceContext.stopRoot(Long.MAX_VALUE);
     }
 
     /** Decorating and running a task with no Trace to propagate. */
@@ -67,6 +67,6 @@ public class SpanOverheadBenchmark {
         TraceIds.putTraceId("0123456789abcdef0123456789abcdef");
         TraceContext.startRoot("GET /orders", SpanKind.HTTP);
         decorator.decorate(() -> blackhole.consume(1)).run();
-        TraceContext.stopRoot(Long.MAX_VALUE, "benchmark");
+        TraceContext.stopRoot(Long.MAX_VALUE);
     }
 }

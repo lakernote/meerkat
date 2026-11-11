@@ -172,7 +172,7 @@ class RedissonTraceConnectionFactoryPostProcessorTest {
         assertThat(commands).isNotSameAs(delegate);
         assertThat(commands.get(KEY)).isEqualTo(VALUE);
         TraceContext.currentRootTraceHandle().requireTree();
-        TraceContext.stopRoot(0, "test", null, completion::set);
+        TraceContext.stopRoot(0, null, completion::set);
 
         assertThat(completion.get().tree())
                 .contains("[Redis] Redis get", "tag=\"get\"")
@@ -194,7 +194,7 @@ class RedissonTraceConnectionFactoryPostProcessorTest {
         assertThat(commands).isNotSameAs(delegate);
         assertThatThrownBy(() -> commands.del(KEY)).isSameAs(failure);
         TraceContext.currentRootTraceHandle().requireTree();
-        TraceContext.stopRoot(0, "test", null, completion::set);
+        TraceContext.stopRoot(0, null, completion::set);
 
         assertThat(completion.get().error()).isTrue();
         assertThat(completion.get().reasons()).contains("REDIS_ERROR");
@@ -216,7 +216,7 @@ class RedissonTraceConnectionFactoryPostProcessorTest {
         assertThat(commands).isSameAs(wrapped);
         assertThat(commands.get(KEY)).isEqualTo(VALUE);
         TraceContext.currentRootTraceHandle().requireTree();
-        TraceContext.stopRoot(0, "test", null, completion::set);
+        TraceContext.stopRoot(0, null, completion::set);
 
         assertThat(completion.get().tree())
                 .contains("[Redis] Redis get", "tag=\"get\"")

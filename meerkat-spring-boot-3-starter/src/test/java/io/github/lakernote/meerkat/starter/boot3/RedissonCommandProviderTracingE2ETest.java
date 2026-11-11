@@ -64,7 +64,7 @@ class RedissonCommandProviderTracingE2ETest {
             assertThat(commands.get(KEY)).containsExactly(VALUE);
         } finally {
             TraceContext.currentRootTraceHandle().requireTree();
-            TraceContext.stopRoot(0, "test", null, completion::set);
+            TraceContext.stopRoot(0, null, completion::set);
         }
 
         assertThat(completion.get()).isNotNull();
@@ -88,7 +88,7 @@ class RedissonCommandProviderTracingE2ETest {
             assertThatThrownBy(() -> commands.set(KEY, VALUE)).isSameAs(fixture.failure());
         } finally {
             TraceContext.currentRootTraceHandle().requireTree();
-            TraceContext.stopRoot(0, "test", null, completion::set);
+            TraceContext.stopRoot(0, null, completion::set);
         }
 
         assertThat(completion.get()).isNotNull();

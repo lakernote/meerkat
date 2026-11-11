@@ -51,7 +51,7 @@ class JdbcCaptureTest {
     }
 
     private TraceNode finish() {
-        TraceContext.stopRoot(Long.MAX_VALUE, "test");
+        TraceContext.stopRoot(Long.MAX_VALUE);
         return captured.get().get(0);
     }
 

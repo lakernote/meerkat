@@ -80,7 +80,7 @@ class TraceSpanAspectTest {
         assertThat(thrown).isSameAs(failure);
         assertThat(TraceContext.currentSpanId()).isEqualTo(rootSpanId);
         TraceContext.currentRootTraceHandle().requireTree();
-        TraceContext.stopRoot(0, "test", null, completion::set);
+        TraceContext.stopRoot(0, null, completion::set);
         TraceCompletion result = completion.get();
         assertThat(result.error()).isTrue();
         assertThat(result.reasons()).containsExactly(TraceContext.CODE_ERROR_REASON);
@@ -102,7 +102,7 @@ class TraceSpanAspectTest {
         aspect.around(joinPoint);
         AtomicReference<TraceCompletion> completion = new AtomicReference<>();
         TraceContext.currentRootTraceHandle().requireTree();
-        TraceContext.stopRoot(0, "test", null, completion::set);
+        TraceContext.stopRoot(0, null, completion::set);
         return completion.get().tree();
     }
 
@@ -127,7 +127,7 @@ class TraceSpanAspectTest {
         proxy.traced();
         proxy.disabled();
         TraceContext.currentRootTraceHandle().requireTree();
-        TraceContext.stopRoot(0, "test", null, completion::set);
+        TraceContext.stopRoot(0, null, completion::set);
 
         assertThat(completion.get().nodes().get(0).children())
                 .extracting(TraceNode::name)

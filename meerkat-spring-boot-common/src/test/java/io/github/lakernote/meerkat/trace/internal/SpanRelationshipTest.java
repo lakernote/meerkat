@@ -45,7 +45,7 @@ class SpanRelationshipTest {
 
         TraceContext.markSlow("test");
         var completion = new java.util.concurrent.atomic.AtomicReference<TraceCompletion>();
-        TraceContext.stopRoot(Long.MAX_VALUE, "test", null, completion::set);
+        TraceContext.stopRoot(Long.MAX_VALUE, null, completion::set);
         assertThat(completion.get().tree()).contains("OrderService#create", "OrderMapper#insert");
         assertThat(completion.get().tree().indexOf("OrderService#create"))
                 .isLessThan(completion.get().tree().indexOf("OrderMapper#insert"));

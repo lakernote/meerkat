@@ -38,7 +38,7 @@ class ActiveTracesTest {
         }
         assertThat(find("trace-live-1").currentStep()).isNull();
 
-        TraceContext.stopRoot(0, "test");
+        TraceContext.stopRoot(0);
         assertThat(find("trace-live-1")).isNull();
     }
 
@@ -66,7 +66,7 @@ class ActiveTracesTest {
 
         assertThat(TraceContext.active()).isFalse();
         assertThat(find("trace-live-3").detached()).isTrue();
-        handle.stop(0, () -> "test", null, completion -> { });
+        handle.stop(0, null, completion -> { });
         assertThat(find("trace-live-3")).isNull();
     }
 

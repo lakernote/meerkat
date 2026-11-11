@@ -33,7 +33,7 @@ class TraceBlockTest {
         assertThat(thrown).isSameAs(failure);
         assertThat(TraceContext.currentSpanId()).isEqualTo(rootSpanId);
         TraceContext.currentRootTraceHandle().requireTree();
-        TraceContext.stopRoot(0, "test", null, completion::set);
+        TraceContext.stopRoot(0, null, completion::set);
         assertFailedSpan(completion.get(), "inventory.reserve", IllegalStateException.class, "inventory unavailable");
     }
 
@@ -49,7 +49,7 @@ class TraceBlockTest {
 
         assertThat(thrown).isSameAs(failure);
         TraceContext.currentRootTraceHandle().requireTree();
-        TraceContext.stopRoot(0, "test", null, completion::set);
+        TraceContext.stopRoot(0, null, completion::set);
         assertFailedSpan(completion.get(), "order.validate", AssertionError.class, "assertion failed");
     }
 
@@ -67,7 +67,7 @@ class TraceBlockTest {
         });
 
         TraceContext.currentRootTraceHandle().requireTree();
-        TraceContext.stopRoot(0, "test", null, completion::set);
+        TraceContext.stopRoot(0, null, completion::set);
         TraceCompletion result = completion.get();
         TraceNode root = result.nodes().get(0);
         TraceNode outer = root.children().get(0);
@@ -108,7 +108,7 @@ class TraceBlockTest {
 
         assertThat(thrown).isSameAs(failure);
         TraceContext.currentRootTraceHandle().requireTree();
-        TraceContext.stopRoot(0, "test", null, completion::set);
+        TraceContext.stopRoot(0, null, completion::set);
         assertFailedSpan(completion.get(), "order.load", IOException.class, "checked failure");
     }
 
@@ -120,7 +120,7 @@ class TraceBlockTest {
         String result = TraceBlock.call("order.success", () -> "created");
 
         TraceContext.currentRootTraceHandle().requireTree();
-        TraceContext.stopRoot(0, "test", null, completion::set);
+        TraceContext.stopRoot(0, null, completion::set);
         assertThat(result).isEqualTo("created");
         assertThat(completion.get().error()).isFalse();
         assertThat(completion.get().tree()).contains("order.success");

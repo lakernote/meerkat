@@ -73,7 +73,7 @@ class TraceCaptureTest {
         TraceContext.markSlow("SLOW_SQL");
         AtomicReference<TraceCompletion> completion = new AtomicReference<>();
 
-        TraceContext.stopRoot(Long.MAX_VALUE, "test", null, completion::set);
+        TraceContext.stopRoot(Long.MAX_VALUE, null, completion::set);
 
         assertThat(completion.get().nodes()).isNotEmpty();
         assertThat(completion.get().tree()).doesNotContain("select * from orders");
@@ -95,7 +95,7 @@ class TraceCaptureTest {
         root.capture(" ", "x");
         root.capture("kept", 42);
 
-        TraceContext.stopRoot(Long.MAX_VALUE, "test");
+        TraceContext.stopRoot(Long.MAX_VALUE);
         root.capture("late", "x");
 
         assertThat(captured.get().get(0).captures()).containsExactly(Map.entry("kept", "42"));
@@ -115,7 +115,7 @@ class TraceCaptureTest {
         root.capture("null", null);
         body.append(" and complete");
 
-        TraceContext.stopRoot(Long.MAX_VALUE, "test");
+        TraceContext.stopRoot(Long.MAX_VALUE);
 
         assertThat(captured.get().get(0).captures()).containsExactly(
                 Map.entry("body", "partial and complete"),
@@ -132,7 +132,7 @@ class TraceCaptureTest {
         root.capture("b", "b".repeat(100));
         root.capture("c", "c".repeat(10));
 
-        TraceContext.stopRoot(Long.MAX_VALUE, "test");
+        TraceContext.stopRoot(Long.MAX_VALUE);
 
         Map<String, String> captures = captured.get().get(0).captures();
         assertThat(captures.get("a")).isEqualTo("a".repeat(64) + "… [truncated, 100 chars]");
@@ -147,7 +147,7 @@ class TraceCaptureTest {
         for (int i = 0; i < Span.MAX_CAPTURES_PER_SPAN + 5; i++) root.capture("key-" + i, "v" + i);
         root.capture("key-0", "replaced");
 
-        TraceContext.stopRoot(Long.MAX_VALUE, "test");
+        TraceContext.stopRoot(Long.MAX_VALUE);
 
         Map<String, String> captures = captured.get().get(0).captures();
         assertThat(captures).hasSize(Span.MAX_CAPTURES_PER_SPAN).containsEntry("key-0", "replaced")
@@ -162,7 +162,7 @@ class TraceCaptureTest {
         TraceContext.currentCaptureTarget().capture("request", "x");
         AtomicReference<TraceCompletion> completion = new AtomicReference<>();
 
-        TraceContext.stopRoot(Long.MAX_VALUE, "test", null, completion::set);
+        TraceContext.stopRoot(Long.MAX_VALUE, null, completion::set);
 
         assertThat(completion.get()).isNotNull();
         assertThat(TraceContext.active()).isFalse();
@@ -215,7 +215,7 @@ class TraceCaptureTest {
         assertThat(CaptureThreadState.claimRemote()).isNull();
 
         CaptureThreadState.openRemote(target);
-        TraceContext.stopRoot(Long.MAX_VALUE, "test");
+        TraceContext.stopRoot(Long.MAX_VALUE);
         assertThat(CaptureThreadState.claimRemote()).isNull();
     }
 
@@ -237,7 +237,7 @@ class TraceCaptureTest {
         assertThat(CaptureThreadState.hasPendingStatement()).isFalse();
 
         CaptureThreadState.rememberStatement(statement, target);
-        TraceContext.stopRoot(Long.MAX_VALUE, "test");
+        TraceContext.stopRoot(Long.MAX_VALUE);
         assertThat(CaptureThreadState.statementTarget(statement)).isNull();
         assertThat(CaptureThreadState.hasPendingStatement()).isFalse();
     }

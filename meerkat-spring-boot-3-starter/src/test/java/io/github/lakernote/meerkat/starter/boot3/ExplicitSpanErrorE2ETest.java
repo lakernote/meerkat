@@ -46,7 +46,7 @@ class ExplicitSpanErrorE2ETest {
 
         assertThat(thrown).isSameAs(service.annotatedFailure());
         TraceContext.currentRootTraceHandle().requireTree();
-        TraceContext.stopRoot(0, "test", null, completion::set);
+        TraceContext.stopRoot(0, null, completion::set);
         TraceCompletion result = completion.get();
         TraceNode root = result.nodes().get(0);
         TraceNode annotated = root.children().get(0);
@@ -69,7 +69,7 @@ class ExplicitSpanErrorE2ETest {
 
         assertThat(thrown).isSameAs(service.blockFailure());
         TraceContext.currentRootTraceHandle().requireTree();
-        TraceContext.stopRoot(0, "test", null, completion::set);
+        TraceContext.stopRoot(0, null, completion::set);
         TraceCompletion result = completion.get();
         TraceNode root = result.nodes().get(0);
         TraceNode wrapper = root.children().get(0);

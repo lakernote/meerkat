@@ -64,7 +64,7 @@ class RedissonConcreteTypeCompatibilityE2ETest {
             assertThat(connection.ping()).isEqualTo("PONG");
         } finally {
             TraceContext.currentRootTraceHandle().requireTree();
-            TraceContext.stopRoot(0, "test", null, completion::set);
+            TraceContext.stopRoot(0, null, completion::set);
         }
 
         assertThat(completion.get()).isNotNull();

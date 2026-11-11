@@ -254,7 +254,7 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
             RootOutcome outcome = new RootOutcome(displayName, detail, status, durationMs, slow,
                     error != null || status >= 500 || redisFailed, resources);
             if (outcome.resources.exceeded()) state.traceHandle.requireTree();
-            state.traceHandle.stop(threshold, () -> state.type.name() + " observation" + resources.logText(), error,
+            state.traceHandle.stop(threshold, error,
                     completion -> storeCompletedTrace(state, completion, outcome));
         } catch (RuntimeException failure) {
             if (ownsRoot) state.traceHandle.discard();
@@ -450,26 +450,6 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
 
         boolean exceeded() {
             return highCpu || highAllocation;
-        }
-
-        /** Suffix for the slow and error trace log, for example {@code ", cpu=12ms, allocated=3.4MiB"}. */
-        String logText() {
-            StringBuilder text = new StringBuilder();
-            if (cpuTimeMs >= 0) text.append(", cpu=").append(cpuTimeMs).append("ms");
-            if (allocatedBytes >= 0) text.append(", allocated=").append(formatBytes(allocatedBytes));
-            return text.toString();
-        }
-
-        private static String formatBytes(long bytes) {
-            if (bytes < 1024) return bytes + "B";
-            String[] units = {"KiB", "MiB", "GiB"};
-            double value = bytes;
-            int unit = -1;
-            while (value >= 1024 && unit < units.length - 1) {
-                value /= 1024;
-                unit++;
-            }
-            return String.format(java.util.Locale.ROOT, "%.1f%s", value, units[unit]);
         }
     }
 }

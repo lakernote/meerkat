@@ -40,7 +40,7 @@ class TransactionTraceListenerTest {
         java.util.concurrent.atomic.AtomicReference<io.github.lakernote.meerkat.trace.internal.TraceCompletion> completion =
                 new java.util.concurrent.atomic.AtomicReference<>();
         io.github.lakernote.meerkat.trace.internal.TraceContext.markSlow("TEST_CAPTURE");
-        io.github.lakernote.meerkat.trace.internal.TraceContext.stopRoot(0, "test", null, completion::set);
+        io.github.lakernote.meerkat.trace.internal.TraceContext.stopRoot(0, null, completion::set);
 
         assertThat(completion.get().tree()).contains("OrderService#create", "getConnection", "OrderMapper#insert");
         assertThat(completion.get().tree().indexOf("OrderService#create"))
@@ -65,7 +65,7 @@ class TransactionTraceListenerTest {
         assertThat(io.github.lakernote.meerkat.trace.internal.TraceContext.currentSpanId()).isEqualTo(rootSpanId);
         java.util.concurrent.atomic.AtomicReference<io.github.lakernote.meerkat.trace.internal.TraceCompletion> completion =
                 new java.util.concurrent.atomic.AtomicReference<>();
-        io.github.lakernote.meerkat.trace.internal.TraceContext.stopRoot(0, "test", null, completion::set);
+        io.github.lakernote.meerkat.trace.internal.TraceContext.stopRoot(0, null, completion::set);
         assertThat(completion.get().tree()).contains("OrderService#create");
         assertThat(completion.get().error()).isTrue();
         assertThat(completion.get().errorMessage()).isEqualTo("connection unavailable");

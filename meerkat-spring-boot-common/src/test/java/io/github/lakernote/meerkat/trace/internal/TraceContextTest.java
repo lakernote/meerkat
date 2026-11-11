@@ -26,7 +26,7 @@ class TraceContextTest {
         TraceContext.startScopedSpan("UserService#list", SpanKind.SERVICE, "").close();
         AtomicReference<TraceCompletion> result = new AtomicReference<>();
 
-        TraceContext.stopRoot(Long.MAX_VALUE, "test", null, result::set);
+        TraceContext.stopRoot(Long.MAX_VALUE, null, result::set);
 
         assertThat(result.get().tree()).isEmpty();
         assertThat(result.get().slow()).isFalse();
@@ -39,7 +39,7 @@ class TraceContextTest {
         TraceContext.startExplicitScopedSpan("Redis SET/GET", SpanKind.REDIS, "order cache").close();
         AtomicReference<TraceCompletion> result = new AtomicReference<>();
 
-        TraceContext.stopRoot(Long.MAX_VALUE, "test", null, result::set);
+        TraceContext.stopRoot(Long.MAX_VALUE, null, result::set);
 
         assertThat(result.get().tree()).contains("GET /api/real-flow", "Redis SET/GET");
         assertThat(result.get().slow()).isFalse();
@@ -53,7 +53,7 @@ class TraceContextTest {
         TraceContext.markSlow("SLOW_SQL");
         AtomicReference<TraceCompletion> result = new AtomicReference<>();
 
-        TraceContext.stopRoot(Long.MAX_VALUE, "test", null, result::set);
+        TraceContext.stopRoot(Long.MAX_VALUE, null, result::set);
 
         assertThat(result.get().tree()).contains("GET /api/users", "UserService#list");
         assertThat(result.get().slow()).isTrue();
@@ -68,7 +68,7 @@ class TraceContextTest {
         TraceContext.markError("SQL_ERROR", failure);
         AtomicReference<TraceCompletion> result = new AtomicReference<>();
 
-        TraceContext.stopRoot(Long.MAX_VALUE, "test", null, result::set);
+        TraceContext.stopRoot(Long.MAX_VALUE, null, result::set);
 
         assertThat(result.get().tree()).contains("GET /api/users", "UserRepository#list");
         assertThat(result.get().error()).isTrue();
@@ -81,7 +81,7 @@ class TraceContextTest {
         TraceContext.startRoot("diagnostic", SpanKind.HTTP);
         AtomicReference<TraceCompletion> result = new AtomicReference<>();
 
-        TraceContext.stopRoot(0, "test", null, result::set);
+        TraceContext.stopRoot(0, null, result::set);
 
         assertThat(result.get().tree()).isEmpty();
         assertThat(result.get().slow()).isFalse();
@@ -94,7 +94,7 @@ class TraceContextTest {
         AtomicReference<TraceCompletion> result = new AtomicReference<>();
 
         TraceContext.currentRootTraceHandle().requireTree();
-        TraceContext.stopRoot(Long.MAX_VALUE, "test", null, result::set);
+        TraceContext.stopRoot(Long.MAX_VALUE, null, result::set);
 
         assertThat(result.get().tree()).contains("GET /outer").doesNotContain("GET /inner");
         assertThat(TraceContext.active()).isFalse();
@@ -129,14 +129,15 @@ class TraceContextTest {
             TraceContext.startScopedSpan("OrderService#create", SpanKind.SERVICE, "").close();
             AtomicReference<TraceCompletion> result = new AtomicReference<>();
 
-            TraceContext.stopRoot(Long.MAX_VALUE, "root\nerror", failure, result::set);
+            TraceContext.stopRoot(Long.MAX_VALUE, failure, result::set);
 
             assertThat(result.get().tree()).contains("POST /orders", "OrderService#create");
             assertThat(result.get().stackTrace()).contains("raw-error-message");
             assertThat(appender.list).singleElement().satisfies(event -> {
                 assertThat(event.getFormattedMessage())
-                        .contains("Trace error summary", "root error", IllegalStateException.class.getName(),
-                                "POST /orders", "OrderService#create")
+                        .startsWith("Trace error ")
+                        .contains(IllegalStateException.class.getName(), "traceId=", "POST /orders",
+                                "OrderService#create")
                         .doesNotContain("raw-error-message");
                 assertThat(event.getThrowableProxy()).isNull();
             });
@@ -160,11 +161,13 @@ class TraceContextTest {
             TraceContext.startScopedSpan("http.client.requests", SpanKind.REMOTE, "/catalog").close();
             Thread.sleep(5);
 
-            TraceContext.stopRoot(1, "HTTP observation");
+            TraceContext.stopRoot(1);
 
             assertThat(appender.list).singleElement().satisfies(event ->
                     assertThat(event.getFormattedMessage())
-                            .contains("Slow trace summary", "GET /slow", "http.client.requests", "/catalog"));
+                            .containsPattern("^Slow trace \\d+ms > 1ms (\\[[A-Z_,]+] )?traceId=\\S+\n")
+                            .contains("GET /slow", "http.client.requests", "/catalog")
+                            .doesNotContain("unfinishedSpans", "suppressed"));
         } finally {
             logger.detachAppender(appender);
             logger.setAdditive(additive);
@@ -195,7 +198,7 @@ class TraceContextTest {
         TraceContext.markError("HTTP_ERROR", evidence);
         AtomicReference<TraceCompletion> result = new AtomicReference<>();
 
-        TraceContext.stopRoot(Long.MAX_VALUE, "test", failure, result::set);
+        TraceContext.stopRoot(Long.MAX_VALUE, failure, result::set);
 
         assertThat(failure.stackReads).hasValue(1);
         assertThat(result.get().stackTrace()).contains("CountingFailure");

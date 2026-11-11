@@ -6,7 +6,6 @@ import org.slf4j.LoggerFactory;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.function.Supplier;
 
 /** Rate-limited, single-line-safe log summaries for slow and failed root traces. */
 final class TraceDiagnosticLog {
@@ -21,24 +20,34 @@ final class TraceDiagnosticLog {
     private TraceDiagnosticLog() {
     }
 
-    static void summarize(TraceCompletion result, Supplier<String> description, long slowThresholdMs, Throwable throwable,
-                          String traceId) {
+    /**
+     * Logs one short header plus the call tree, for example
+     * {@code Slow trace 345ms > 250ms [SLOW_JOB] traceId=...}; zero counters are omitted.
+     */
+    static void summarize(TraceCompletion result, long slowThresholdMs, Throwable throwable, String traceId) {
         if (throwable != null) {
             long suppressed = ERROR_LIMITER.tryAcquire(System.nanoTime());
             if (suppressed < 0) return;
-            log.error("Trace error summary: description={}, cost={}ms, threshold={}ms, exception={}, "
-                            + "reasons={}, unfinishedSpansAtTraceEnd={}, traceId={}, previousWindowSuppressed={}\n{}",
-                    oneLine(description.get()), result.costMs(), slowThresholdMs, oneLine(throwable.getClass().getName()),
-                    summarizeReasons(result.reasons()), countUnfinishedSpans(result.nodes()), oneLine(traceId),
-                    suppressed, result.tree());
+            StringBuilder header = new StringBuilder(128).append("Trace error ").append(result.costMs()).append("ms ");
+            appendOneLine(header, throwable.getClass().getName());
+            log.error("{}\n{}", finish(header, result, traceId, suppressed), result.tree());
         } else if (slowThresholdMs > 0 && result.costMs() >= slowThresholdMs) {
             long suppressed = SLOW_LIMITER.tryAcquire(System.nanoTime());
             if (suppressed < 0) return;
-            log.warn("Slow trace summary: description={}, cost={}ms, threshold={}ms, reasons={}, "
-                            + "unfinishedSpansAtTraceEnd={}, traceId={}, previousWindowSuppressed={}\n{}",
-                    oneLine(description.get()), result.costMs(), slowThresholdMs, summarizeReasons(result.reasons()),
-                    countUnfinishedSpans(result.nodes()), oneLine(traceId), suppressed, result.tree());
+            StringBuilder header = new StringBuilder(128).append("Slow trace ").append(result.costMs())
+                    .append("ms > ").append(slowThresholdMs).append("ms");
+            log.warn("{}\n{}", finish(header, result, traceId, suppressed), result.tree());
         }
+    }
+
+    private static String finish(StringBuilder header, TraceCompletion result, String traceId, long suppressed) {
+        String reasons = summarizeReasons(result.reasons());
+        if (!reasons.isEmpty()) header.append(" [").append(reasons).append(']');
+        header.append(" traceId=").append(oneLine(traceId));
+        int unfinished = countUnfinishedSpans(result.nodes());
+        if (unfinished > 0) header.append(" unfinishedSpans=").append(unfinished);
+        if (suppressed > 0) header.append(" suppressedLastMinute=").append(suppressed);
+        return header.toString();
     }
 
     private static int countUnfinishedSpans(List<TraceNode> nodes) {
@@ -65,7 +74,7 @@ final class TraceDiagnosticLog {
             if (!result.isEmpty()) result.append(',');
             appendOneLine(result, reason);
         }
-        return result.isEmpty() ? "-" : result.toString();
+        return result.toString();
     }
 
     private static void appendOneLine(StringBuilder result, String value) {

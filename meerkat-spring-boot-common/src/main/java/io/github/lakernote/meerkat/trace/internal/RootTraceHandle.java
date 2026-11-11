@@ -3,7 +3,6 @@ package io.github.lakernote.meerkat.trace.internal;
 import io.github.lakernote.meerkat.trace.SpanKind;
 
 import java.util.function.Consumer;
-import java.util.function.Supplier;
 
 /** A root-tree reference retained by an Observation so the request can be finished on another thread. */
 public final class RootTraceHandle {
@@ -61,10 +60,8 @@ public final class RootTraceHandle {
         return DetachedSpan.of(trace, trace.addChild(trace.rootSpan(), 1, name, kind, tag));
     }
 
-    /** @param description evaluated only when a slow or error summary is actually logged */
-    public void stop(long slowThresholdMs, Supplier<String> description, Throwable failure,
-                     Consumer<TraceCompletion> completion) {
-        TraceContext.completeRoot(trace, slowThresholdMs, description, failure, completion);
+    public void stop(long slowThresholdMs, Throwable failure, Consumer<TraceCompletion> completion) {
+        TraceContext.completeRoot(trace, slowThresholdMs, failure, completion);
     }
 
     public void discard() {

@@ -68,14 +68,14 @@ public class JdbcOverheadBenchmark {
         TraceIds.putTraceId("0123456789abcdef0123456789abcdef");
         TraceContext.startRoot("GET /orders", SpanKind.HTTP);
         for (int i = 0; i < QUERIES; i++) query();
-        TraceContext.stopRoot(Long.MAX_VALUE, "benchmark");
+        TraceContext.stopRoot(Long.MAX_VALUE);
     }
 
     @Benchmark
     public void emptyTrace() {
         TraceIds.putTraceId("0123456789abcdef0123456789abcdef");
         TraceContext.startRoot("GET /orders", SpanKind.HTTP);
-        TraceContext.stopRoot(Long.MAX_VALUE, "benchmark");
+        TraceContext.stopRoot(Long.MAX_VALUE);
     }
 
     private void query() {

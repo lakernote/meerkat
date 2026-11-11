@@ -55,7 +55,7 @@ class CaptureFilterTest {
             failure = thrown;
             throw thrown;
         } finally {
-            TraceContext.stopRoot(Long.MAX_VALUE, "test", failure, completion -> {
+            TraceContext.stopRoot(Long.MAX_VALUE, failure, completion -> {
                 assertThat(completion.nodes()).allSatisfy(node -> assertThat(node.captures()).isEmpty());
             });
         }
@@ -331,7 +331,7 @@ class CaptureFilterTest {
 
         failingFilter.doFilter(new MockHttpServletRequest("GET", "/api/x"), new MockHttpServletResponse(),
                 (req, res) -> called.set(true));
-        TraceContext.stopRoot(Long.MAX_VALUE, "test");
+        TraceContext.stopRoot(Long.MAX_VALUE);
 
         assertThat(called.get()).isTrue();
         assertThat(sessions.list().get(0).capturedCount()).isEqualTo(1);

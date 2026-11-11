@@ -76,7 +76,7 @@ class ObservationTraceHandlerTest {
 
         TraceContext.currentRootTraceHandle().requireTree();
         TraceCompletion[] completion = new TraceCompletion[1];
-        TraceContext.stopRoot(Long.MAX_VALUE, "test", null, result -> completion[0] = result);
+        TraceContext.stopRoot(Long.MAX_VALUE, null, result -> completion[0] = result);
         assertThat(completion[0].tree()).contains("[Redis] GET");
         assertThat(completion[0].slow()).isFalse();
         history.add(TraceRecord.builder().traceId("trace-redis-1").sourceType("HTTP")
@@ -108,7 +108,7 @@ class ObservationTraceHandlerTest {
         observation.error(failure);
         observation.stop();
         TraceContext.currentRootTraceHandle().requireTree();
-        TraceContext.stopRoot(0, "test", null, completion::set);
+        TraceContext.stopRoot(0, null, completion::set);
 
         TraceCompletion result = completion.get();
         assertThat(result.error()).isTrue();
@@ -147,7 +147,7 @@ class ObservationTraceHandlerTest {
         context.setError(failure);
         handler.onStop(context);
         TraceContext.currentRootTraceHandle().requireTree();
-        TraceContext.stopRoot(0, "test", null, completion::set);
+        TraceContext.stopRoot(0, null, completion::set);
 
         assertThat(completion.get().error()).isTrue();
         assertThat(completion.get().reasons()).containsExactly("DATABASE_ERROR");

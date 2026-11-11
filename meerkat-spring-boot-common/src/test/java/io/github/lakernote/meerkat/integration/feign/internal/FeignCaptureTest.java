@@ -42,7 +42,7 @@ class FeignCaptureTest {
     }
 
     private Map<String, String> finish() {
-        TraceContext.stopRoot(Long.MAX_VALUE, "test");
+        TraceContext.stopRoot(Long.MAX_VALUE);
         return captured.get().get(0).captures();
     }
 

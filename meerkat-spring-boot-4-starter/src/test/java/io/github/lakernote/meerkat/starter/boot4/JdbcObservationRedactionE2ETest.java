@@ -54,7 +54,7 @@ class JdbcObservationRedactionE2ETest {
         observation.error(failure);
         observation.stop();
         TraceContext.currentRootTraceHandle().requireTree();
-        TraceContext.stopRoot(0, "test", null, completion::set);
+        TraceContext.stopRoot(0, null, completion::set);
 
         TraceCompletion result = completion.get();
         assertThat(result.error()).isTrue();

@@ -159,7 +159,7 @@ class ObservationTraceHandlerStatsTest {
     }
 
     @Test
-    void slowEntryLogStatesEntryThreadCpuAndAllocation() throws InterruptedException {
+    void slowEntryLogIsAShortHeaderPlusTree() throws InterruptedException {
         MeerkatProperties properties = new MeerkatProperties();
         properties.getTrace().setHttpSlowThreshold(Duration.ofMillis(1));
         ObservationRegistry slowRegistry = ObservationRegistry.create();
@@ -181,7 +181,7 @@ class ObservationTraceHandlerStatsTest {
             observation.stop();
 
             assertThat(appender.list).singleElement().satisfies(event -> assertThat(event.getFormattedMessage())
-                    .containsPattern("description=HTTP observation, cpu=\\d+ms, allocated=[0-9.]+(B|KiB|MiB), cost="));
+                    .startsWith("Slow trace ").contains("/slow · GET").doesNotContain("cpu=", "allocated="));
         } finally {
             logger.detachAppender(appender);
             logger.setAdditive(additive);
