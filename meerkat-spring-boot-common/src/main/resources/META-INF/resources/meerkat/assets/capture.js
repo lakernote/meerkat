@@ -1,4 +1,4 @@
-import { $, initializeEmbeddedAuth, kindName, node, request, showNotice } from './common.js?v=20261111.2'
+import { $, initializeEmbeddedAuth, kindName, node, request, showNotice } from './common.js?v=20261111.3'
 
 const DENIED = t('没有流量抓取的权限，请登录或检查 ObservabilityAccessPolicy.canCapture')
 const DISABLED = t('流量抓取不可用：需要开启 meerkat.trace.enabled')
@@ -16,10 +16,6 @@ let recordsRequest = 0
 let statusRequest = 0
 let statusFailed = false
 
-function connected(ok) {
-  $('instance').classList.toggle('connected', ok)
-  $('instance').lastChild.textContent = t(ok ? '已连接' : '连接失败')
-}
 
 function formatMs(ms) {
   return ms >= 1000 ? `${(ms / 1000).toFixed(ms >= 10000 ? 1 : 2)} s` : `${ms} ms`
@@ -42,7 +38,6 @@ async function refresh() {
     next = await request('capture/status', {}, DENIED)
   } catch (error) {
     if (requestId !== statusRequest) return
-    connected(false)
     showNotice(error.message, true)
     statusFailed = true
     // Keep polling while a capture was running, more slowly, so the page recovers once the server answers again.
@@ -51,7 +46,6 @@ async function refresh() {
   }
   if (requestId !== statusRequest) return
   status = next
-  connected(true)
   if (statusFailed) {
     statusFailed = false
     showNotice('')

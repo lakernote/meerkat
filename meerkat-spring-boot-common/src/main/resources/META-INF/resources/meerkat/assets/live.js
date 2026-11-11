@@ -1,5 +1,5 @@
-import { authHeaders, loginRedirected, SESSION_EXPIRED_MESSAGE } from './common.js?v=20261111.2'
-import { $, api, formatBytes, formatMs, initializeEmbeddedAuth, kindName, node, request, showNotice } from './metrics-common.js?v=20261111.2'
+import { authHeaders, loginRedirected, SESSION_EXPIRED_MESSAGE } from './common.js?v=20261111.3'
+import { $, api, formatBytes, formatMs, initializeEmbeddedAuth, kindName, node, request, showNotice } from './metrics-common.js?v=20261111.3'
 
 const DENIED = t('没有查看实时诊断的权限，请登录或检查 ObservabilityAccessPolicy')
 const SOURCES = { HTTP: 'HTTP', JOB: t('定时任务'), KAFKA_CONSUMER: t('Kafka 消费') }
@@ -13,10 +13,6 @@ let timer = null
 let loading = false
 let refreshPending = false
 
-function connected(ok) {
-  $('instance').classList.toggle('connected', ok)
-  $('instance').lastChild.textContent = t(ok ? '已连接' : '连接失败')
-}
 
 
 function cpuText(ms) {
@@ -292,10 +288,8 @@ async function refresh() {
   try {
     if (tab === 'requests') await loadRequests()
     else await loadThreads()
-    connected(true)
     showNotice('')
   } catch (error) {
-    connected(false)
     showNotice(error.message.includes('HTTP 429') ? t('另一个线程采样正在进行，请稍后再试') : error.message, true)
   } finally {
     loading = false

@@ -19,7 +19,7 @@
 .stats-share-bar { flex:1; height:6px; overflow:hidden; border-radius:3px; background:#edf1f7; }
 .stats-share-bar i { display:block; height:100%; border-radius:3px; background:#6c8fe0; }
 .stats-share span { min-width:44px; text-align:right; font-variant-numeric:tabular-nums; }
-@media(max-width:720px) { .stats-controls .storage-summary { margin-left:0; } .stats-search { max-width:none; width:100%; } }
+@media(max-width:720px) { .stats-controls { align-items:stretch; } .stats-controls .storage-summary { margin-left:0; } .stats-search { max-width:none; width:100%; } }
 .stats-table tbody tr { cursor:pointer; }
 .stats-table tbody tr.is-expanded td { background:#f3f6fd; }
 .stats-table tbody tr.stats-detail { cursor:default; }

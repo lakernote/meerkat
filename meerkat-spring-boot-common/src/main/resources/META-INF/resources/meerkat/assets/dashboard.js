@@ -1,4 +1,4 @@
-import { $, initializeEmbeddedAuth, kindName, node, poll, request as apiRequest } from './common.js?v=20261111.2'
+import { $, initializeEmbeddedAuth, kindName, node, poll, request as apiRequest } from './common.js?v=20261111.3'
 
 const PAGE_SIZE = 50
 let traces = { items: [], nextCursor: null, scanLimited: false, total: 0 }
@@ -404,15 +404,11 @@ async function refresh() {
     const result = await request(traceQuery())
     if (requestId !== loadRequest) return true
     traces = result
-    $('instance').classList.add('connected')
-    $('instance').lastChild.textContent = t('已连接')
     $('notice').hidden = true
     render()
     return true
   } catch (error) {
     if (requestId !== loadRequest) return true
-    $('instance').classList.remove('connected')
-    $('instance').lastChild.textContent = t('连接失败')
     $('notice').textContent = t('{message}。请检查应用权限和服务状态。', { message: error.message })
     $('notice').hidden = false
     return false

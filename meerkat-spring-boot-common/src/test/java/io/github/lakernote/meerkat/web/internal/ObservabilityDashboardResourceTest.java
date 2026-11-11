@@ -59,7 +59,7 @@ class ObservabilityDashboardResourceTest {
                 .contains("overviewCharts(trends, resources)", "meerkat.executor.rejected", "request(`metrics/operations/trends?period=${period}`)",
                         "meter: 'hikaricp.connections.acquire', stat: 'total', per: 'count'",
                         "request(`metrics/resources?period=${period}`)", "request('metrics/storage')",
-                        "历史存储不可用", "$('instance').classList.toggle('degraded', !storage.persistent)",
+                        "历史存储不可用",
                         "OPEN_STATE_KEY", "buildSections()", "fillSection(")
                 .doesNotContain("innerHTML", "const api = '/api/", "operationCharts", "custom", "include");
         page.close();

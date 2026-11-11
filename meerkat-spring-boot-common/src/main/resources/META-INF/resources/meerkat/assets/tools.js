@@ -1,12 +1,13 @@
 import {
   $, authHeaders, bearerToken, csrfToken, initializeEmbeddedAuth, loginRedirected, node, SESSION_EXPIRED_MESSAGE, showNotice
-} from './common.js?v=20261111.2'
+} from './common.js?v=20261111.3'
 
 const API = new URL('../../api/meerkat/tools/', import.meta.url)
 const DENIED = t('没有查看的权限，请登录或检查 ObservabilityAccessPolicy')
 const OPERATE_DENIED = t('没有敏感操作的权限，请检查 ObservabilityAccessPolicy.canOperate')
 const DISABLED = t('工具箱未启用：请设置 meerkat.tools.enabled=true 后重启应用')
 const ROW_HEIGHT = 18
+const TABS = ['log-levels', 'profiler', 'heap', 'heap-dump', 'config', 'classes']
 let status = null
 let overrides = []
 let countdown = null
@@ -14,11 +15,9 @@ let profileTimer = null
 let profile = null
 let flameFocus = null
 let flameRects = []
-
-function connected(ok) {
-  $('instance').classList.toggle('connected', ok)
-  $('instance').lastChild.textContent = t(ok ? '已连接' : '连接失败')
-}
+let tab = 'log-levels'
+let loggerSearchTimer = null
+let loggerRequest = 0
 
 /** Calls the toolbox API; {@code messages} maps HTTP statuses to the text shown when they are returned. */
 async function call(path, options = {}, messages = {}) {
@@ -111,15 +110,13 @@ function table(headers, rows) {
 async function refresh() {
   try {
     status = await call('status')
-    connected(true)
   } catch (error) {
-    connected(false)
     showNotice(error.message, true)
     return
   }
   if (!status.enabled) {
     showNotice(DISABLED, true)
-    document.querySelectorAll('.tools-card button').forEach(button => { button.disabled = true })
+    document.querySelectorAll('.tools-panel button').forEach(button => { button.disabled = true })
     return
   }
   $('operate-denied').hidden = status.canOperate
@@ -150,7 +147,9 @@ async function loadLoggers() {
     return
   }
   const query = $('logger-query').value.trim()
+  const requestId = ++loggerRequest
   const result = await call(`loggers?limit=200&q=${encodeURIComponent(query)}`)
+  if (requestId !== loggerRequest) return
   overrides = result.overrides
   renderOverrides()
   const loggers = result.loggers.loggers
@@ -277,15 +276,21 @@ function renderProfile() {
   if (profile.truncatedSamples) fact(facts, t('超出节点上限的样本'), profile.truncatedSamples)
   fact(facts, t('操作人'), session.operator)
   if (session.error) fact(facts, t('错误'), session.error)
-  $('flame-wrap').hidden = profile.root.total === 0
-  if (profile.root.total === 0) return
+  const sampled = profile.root.total > 0
+  $('flame-wrap').hidden = !sampled
+  $('hot-methods').hidden = !sampled
+  $('profile-empty').hidden = sampled
+  if (!sampled) {
+    $('profile-empty').textContent = running ? t('采样中，稍后显示火焰图…') : t('没有采到符合条件的线程栈样本')
+    return
+  }
   $('hot-rows').replaceChildren(...profile.hotMethods.map(method => {
     const row = node('tr')
     row.append(cell(method.method, 'mono'), cell(method.samples, 'numeric'), cell(`${method.percent}%`, 'numeric'))
     return row
   }))
   if (flameFocus && !findPath(profile.root, flameFocus)) flameFocus = null
-  drawFlame()
+  if (tab === 'profiler') drawFlame()
 }
 
 function stopProfile() {
@@ -399,7 +404,7 @@ function flameHover(event) {
       samples: hit.frame.total, percent: (hit.frame.total * 100 / total).toFixed(2), self: hit.frame.self
     })))
   tip.hidden = false
-  const wrap = $('flame-wrap').getBoundingClientRect()
+  const wrap = $('flame').parentElement.getBoundingClientRect()
   tip.style.left = `${Math.min(event.clientX - wrap.left + 12, wrap.width - 320)}px`
   tip.style.top = `${event.clientY - wrap.top + 14}px`
 }
@@ -556,6 +561,7 @@ function lookupConfig(name = $('config-name').value.trim()) {
         cell(definition.origin, 'mono'), cell(definition.winner ? t('生效') : t('被覆盖')))
       return row
     })
+    container.hidden = false
     container.replaceChildren(facts, rows.length
       ? table([{ label: '#', numeric: true }, t('配置源（优先级从高到低）'), t('原始值'), t('位置'), t('状态')], rows)
       : node('p', 'empty', t('没有配置源定义这个配置项')))
@@ -583,6 +589,7 @@ function searchConfig() {
     const summary = node('p', 'tools-note', result.truncated
       ? t('匹配 {total} 项，只显示前 {shown} 项', { total: result.total, shown: rows.length })
       : t('匹配 {total} 项', { total: result.total }))
+    $('config-result').hidden = false
     $('config-result').replaceChildren(summary, rows.length
       ? table([t('配置项'), t('最终值'), t('生效的配置源'), { label: t('定义次数'), numeric: true }], rows)
       : node('p', 'empty', t('没有匹配的配置项')))
@@ -617,6 +624,7 @@ function lookupClass() {
       : node('p', 'empty', t('类路径上没有找到这个类文件')))
     parts.push(node('h3', 'tools-subheading', t('类加载器链')),
       node('pre', 'live-stack', result.classLoaderChain.join('\n  ↑ ')))
+    $('class-result').hidden = false
     $('class-result').replaceChildren(...parts)
   })
 }
@@ -681,10 +689,29 @@ function renderScan(scan) {
     })))
     parts.push(details)
   }
+  $('class-result').hidden = false
   $('class-result').replaceChildren(...parts)
 }
 
 // ---- page ----
+
+function selectTab(next) {
+  tab = TABS.includes(next) ? next : TABS[0]
+  for (const name of TABS) {
+    const active = name === tab
+    $(`tab-${name}`).classList.toggle('active', active)
+    if (active) $(`tab-${name}`).setAttribute('aria-current', 'page')
+    else $(`tab-${name}`).removeAttribute('aria-current')
+    $(`${name}-panel`).hidden = !active
+  }
+  // The canvas has no width while its panel is hidden, so redraw once the panel is shown.
+  if (tab === 'profiler' && profile && !$('flame-wrap').hidden) drawFlame()
+}
+
+function searchLoggers() {
+  clearTimeout(loggerSearchTimer)
+  if (status?.enabled) loadLoggers().catch(error => showNotice(error.message, true))
+}
 
 function onEnter(id, action) {
   $(id).addEventListener('keydown', event => {
@@ -697,8 +724,11 @@ function onEnter(id, action) {
 
 $('refresh').addEventListener('click', () => refresh())
 $('logger-set').addEventListener('click', setLevel)
-$('logger-search').addEventListener('click', () => loadLoggers().catch(error => showNotice(error.message, true)))
-onEnter('logger-query', () => loadLoggers().catch(error => showNotice(error.message, true)))
+$('logger-query').addEventListener('input', () => {
+  clearTimeout(loggerSearchTimer)
+  loggerSearchTimer = setTimeout(searchLoggers, 300)
+})
+onEnter('logger-query', searchLoggers)
 $('profile-start').addEventListener('click', startProfile)
 $('profile-stop').addEventListener('click', stopProfile)
 $('profile-download').addEventListener('click', downloadCollapsed)
@@ -710,7 +740,7 @@ $('flame-search').addEventListener('input', () => profile && drawFlame())
 $('flame').addEventListener('mousemove', flameHover)
 $('flame').addEventListener('mouseleave', () => { $('flame-tip').hidden = true })
 $('flame').addEventListener('click', flameClick)
-window.addEventListener('resize', () => profile && !$('flame-wrap').hidden && drawFlame())
+window.addEventListener('resize', () => tab === 'profiler' && profile && !$('flame-wrap').hidden && drawFlame())
 $('histogram-take').addEventListener('click', takeHistogram)
 $('heap-dump-start').addEventListener('click', heapDump)
 $('config-lookup').addEventListener('click', () => lookupConfig())
@@ -719,4 +749,6 @@ onEnter('config-name', () => lookupConfig())
 $('class-lookup').addEventListener('click', lookupClass)
 $('class-scan').addEventListener('click', scanClasses)
 onEnter('class-name', lookupClass)
+window.addEventListener('hashchange', () => selectTab(location.hash.slice(1)))
+selectTab(location.hash.slice(1))
 initializeEmbeddedAuth().then(refresh)

@@ -85,14 +85,16 @@ select option { color: var(--ink); font-weight: 500; }
   color: var(--ink);
 }
 .quiet-button { color: var(--muted) !important; }
+.capture-primary { min-height:40px; padding:0 18px; border:1px solid var(--blue); border-radius:6px; background:var(--blue); color:#fff; font-weight:650; }
+.capture-primary:hover { filter:brightness(1.08); }
+.capture-heading { margin:0; padding:14px 14px 10px; color:#26364e; font-size:15px; }
+.capture-heading small { color:var(--muted); font-size:12px; font-weight:500; }
+.capture-stop { min-height:28px; padding:0 10px; border:1px solid #f2c4c4; border-radius:5px; background:#fff; color:var(--red); font-size:12px; }
+.capture-primary:disabled, .capture-stop:disabled { opacity: .5; cursor: not-allowed; filter: none; }
 .toolbar .lang-toggle { color: var(--muted); white-space: nowrap; }
 html[lang="en"] .lang-toggle [lang="en"], html:not([lang="en"]) .lang-toggle [lang="zh"] { color: var(--ink); }
 .page-actions { display: flex; justify-content: flex-end; margin-top: 12px; }
 .page-actions:not(:has(> :not([hidden]))) { display: none; }
-.instance-pill { display: flex; align-items: center; gap: 7px; margin-right: 8px; color: var(--muted); font-size: 12px; }
-.instance-pill i { width: 7px; height: 7px; border-radius: 50%; background: #d18a1f; }
-.instance-pill.connected i { background: #15966a; }
-.instance-pill.degraded i { background: #d18a1f; }
 .view-nav { display: flex; align-self: stretch; align-items: center; gap: 5px; margin-left: auto; margin-right: 22px; }
 .view-nav a { padding: 8px 11px; border-radius: 7px; color: #66768c; font-size: 12px; font-weight: 650; text-decoration: none; }
 .view-nav a:hover { background: #f1f4f9; color: var(--ink); }
@@ -326,11 +328,11 @@ body:has(dialog[open]) { overflow: hidden; }
   .brand { gap: 8px; }
   .brand-mark { width: 32px; height: 32px; }
   .toolbar { gap: 5px; }
-  .view-nav { margin-right: 6px; }
-  .view-nav a { padding: 7px 6px; font-size: 10px; }
+  .brand small { display: none; }
+  .view-nav { min-width: 0; margin-right: 6px; overflow-x: auto; scrollbar-width: none; }
+  .view-nav a { flex: none; padding: 7px 6px; font-size: 10px; white-space: nowrap; }
+  .toolbar { flex: none; }
   .toolbar button { min-height: 36px; padding: 6px 8px; font-size: 11px; }
-  .instance-pill { margin-right: 1px; font-size: 0; }
-  .instance-pill i { width: 8px; height: 8px; }
   .report { padding: 22px 12px 18px; }
   .intro { margin-bottom: 14px; }
   .intro h1 { font-size: 25px; }

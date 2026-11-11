@@ -6,12 +6,12 @@
   <meta name="color-scheme" content="light">
   <title>Meerkat · 工具箱</title>
   <link rel="icon" type="image/png" href="../assets/meerkat-icon.png?v=20261106.12">
-  <script defer src="../assets/i18n.js?v=20261111.2"></script>
-  <link rel="stylesheet" href="../assets/dashboard.css?v=20261111.1">
-  <link rel="stylesheet" href="../assets/metrics.css?v=20261106.11">
-  <link rel="stylesheet" href="../assets/stats.css?v=20261106.11">
+  <script defer src="../assets/i18n.js?v=20261111.3"></script>
+  <link rel="stylesheet" href="../assets/dashboard.css?v=20261111.3">
+  <link rel="stylesheet" href="../assets/metrics.css?v=20261111.3">
+  <link rel="stylesheet" href="../assets/stats.css?v=20261111.3">
   <link rel="stylesheet" href="../assets/live.css?v=20261106.11">
-  <link rel="stylesheet" href="../assets/tools.css?v=20261106.1">
+  <link rel="stylesheet" href="../assets/tools.css?v=20261111.3">
 </head>
 <body>
   <a class="skip-link" href="#main-content">跳到主要内容</a>
@@ -28,7 +28,6 @@
       <a class="active" href="./">工具箱</a>
     </nav>
     <div class="toolbar">
-      <span id="instance" class="instance-pill"><i></i>连接中</span>
       <button id="refresh" type="button">刷新</button>
       <button id="lang-toggle" class="lang-toggle" type="button" translate="no"><span lang="zh">中文</span> / <span lang="en">EN</span></button>
     </div>
@@ -39,150 +38,141 @@
       <h1>工具箱</h1>
       <p>按需使用的排查工具：临时调整日志级别、CPU 采样火焰图、堆直方图与对比、堆 Dump、配置来源和类来源。所有操作只在点击时执行，有时间和资源上限，同一类操作同时只能运行一个。</p>
     </section>
+    <nav class="sub-nav tools-tabs" aria-label="工具列表">
+      <a id="tab-log-levels" class="active" aria-current="page" href="#log-levels">日志级别</a>
+      <a id="tab-profiler" href="#profiler">CPU 火焰图</a>
+      <a id="tab-heap" href="#heap">堆直方图</a>
+      <a id="tab-heap-dump" href="#heap-dump">堆 Dump</a>
+      <a id="tab-config" href="#config">配置来源</a>
+      <a id="tab-classes" href="#classes">类来源</a>
+    </nav>
     <div id="notice" class="notice" role="status" hidden></div>
     <div id="operate-denied" class="notice warning" hidden>当前没有敏感操作权限（ObservabilityAccessPolicy.canOperate）：修改日志级别、CPU 采样、堆直方图、下载堆 Dump、查看配置值和扫描重复类已禁用。</div>
-    <nav class="tools-index" aria-label="工具列表">
-      <a href="#log-levels">日志级别</a>
-      <a href="#profiler">CPU 火焰图</a>
-      <a href="#heap">堆直方图</a>
-      <a href="#heap-dump">堆 Dump</a>
-      <a href="#config">配置来源</a>
-      <a href="#classes">类来源</a>
-    </nav>
 
-    <section id="log-levels" class="trace-list tools-card">
-      <div class="tools-head">
-        <h2 class="capture-heading">日志级别 <small>到期自动恢复</small></h2>
-      </div>
+    <section id="log-levels-panel" class="tools-panel" aria-label="日志级别">
       <p class="tools-hint">临时修改某个 Logger 的级别，到期后自动恢复为修改前的配置级别；应用重启后修改失效。</p>
-      <div class="metrics-controls tools-form">
+      <section class="metrics-controls stats-controls tools-form" aria-label="临时修改日志级别">
         <label class="stats-search"><span>Logger</span><input id="logger-name" type="text" maxlength="256" placeholder="例如 com.example.order 或 ROOT" list="logger-names"></label>
         <label><span>级别</span><select id="logger-level"></select></label>
         <label><span>持续时间</span><select id="logger-duration"><option value="60">1 分钟</option><option value="300" selected>5 分钟</option><option value="900">15 分钟</option><option value="1800">30 分钟</option><option value="3600">60 分钟</option></select></label>
         <button id="logger-set" class="capture-primary operate" type="button">临时修改</button>
-      </div>
+      </section>
       <datalist id="logger-names"></datalist>
-      <h3 class="tools-subheading">生效中的临时级别</h3>
-      <div class="table-scroll"><table class="stats-table live-table tools-table">
-        <caption class="sr-only">生效中的临时日志级别</caption>
-        <thead><tr><th>Logger</th><th>临时级别</th><th>原级别</th><th>剩余</th><th>操作人</th><th></th></tr></thead>
-        <tbody id="override-rows"></tbody>
-      </table></div>
-      <p id="overrides-empty" class="empty" hidden>没有生效中的临时级别</p>
-      <div class="metrics-controls tools-form">
-        <label class="stats-search"><span>搜索 Logger</span><input id="logger-query" type="search" maxlength="256" placeholder="名称包含的文字"></label>
-        <button id="logger-search" class="quiet-button" type="button">搜索</button>
-      </div>
-      <div class="table-scroll"><table class="stats-table live-table tools-table">
-        <caption class="sr-only">Logger 列表；选择一行填入上面的表单</caption>
-        <thead><tr><th>Logger</th><th>配置级别</th><th>生效级别</th></tr></thead>
-        <tbody id="logger-rows"></tbody>
-      </table></div>
-      <p id="loggers-summary" class="empty" hidden></p>
+      <section class="trace-list">
+        <h2 class="capture-heading">生效中的临时级别 <small>到期自动恢复</small></h2>
+        <div class="table-scroll"><table class="stats-table live-table tools-table">
+          <caption class="sr-only">生效中的临时日志级别</caption>
+          <thead><tr><th>Logger</th><th>临时级别</th><th>原级别</th><th>剩余</th><th>操作人</th><th></th></tr></thead>
+          <tbody id="override-rows"></tbody>
+        </table></div>
+        <p id="overrides-empty" class="empty" hidden>没有生效中的临时级别</p>
+      </section>
+      <section class="trace-list">
+        <div class="tools-head">
+          <h2 class="capture-heading">Logger 列表 <small>选择一行填入上面的表单</small></h2>
+          <label class="stats-search tools-head-search"><span class="sr-only">搜索 Logger</span><input id="logger-query" type="search" maxlength="256" placeholder="搜索 Logger 名称，回车确认"></label>
+        </div>
+        <div class="table-scroll tools-scroll"><table class="stats-table live-table tools-table">
+          <caption class="sr-only">Logger 列表；选择一行填入上面的表单</caption>
+          <thead><tr><th>Logger</th><th>配置级别</th><th>生效级别</th></tr></thead>
+          <tbody id="logger-rows"></tbody>
+        </table></div>
+        <p id="loggers-summary" class="tools-summary" hidden></p>
+      </section>
     </section>
 
-    <section id="profiler" class="trace-list tools-card">
-      <div class="tools-head">
-        <h2 class="capture-heading">CPU 火焰图 <small>线程栈采样</small></h2>
-      </div>
+    <section id="profiler-panel" class="tools-panel" aria-label="CPU 火焰图" hidden>
       <p class="tools-hint">按固定间隔采集 RUNNABLE 线程的调用栈并汇总成火焰图，不需要 Java Agent。栈越宽表示占用 CPU 采样越多；点击方块放大，点击最底层恢复。采样有少量开销，结果只保存最近一次。</p>
-      <div class="metrics-controls tools-form">
+      <section class="metrics-controls stats-controls tools-form" aria-label="采样参数">
         <label><span>采样时长</span><select id="profile-duration"><option value="5">5 秒</option><option value="10" selected>10 秒</option><option value="30">30 秒</option><option value="60">60 秒</option></select></label>
         <label><span>采样间隔</span><select id="profile-interval"><option value="10">10 ms</option><option value="20" selected>20 ms</option><option value="50">50 ms</option><option value="100">100 ms</option></select></label>
         <label class="live-toggle"><input id="profile-exclude-idle" type="checkbox" checked><span>排除空闲等待（epoll、accept 等）</span></label>
         <label class="live-toggle"><input id="profile-include-blocked" type="checkbox"><span>包含阻塞和等待中的线程</span></label>
         <label class="live-toggle"><input id="profile-by-thread" type="checkbox"><span>按线程分组</span></label>
         <button id="profile-start" class="capture-primary operate" type="button">开始采样</button>
-        <button id="profile-stop" class="quiet-button operate" type="button" hidden>提前停止</button>
-      </div>
+        <button id="profile-stop" class="capture-stop operate" type="button" hidden>提前停止</button>
+      </section>
       <div id="profile-facts" class="live-facts tools-facts" hidden></div>
-      <div id="flame-wrap" class="flame-wrap" hidden>
+      <section id="flame-wrap" class="trace-list flame-card" hidden>
         <div class="flame-tools">
           <span id="flame-path" class="flame-path"></span>
           <label class="stats-search flame-search"><span class="sr-only">高亮方法</span><input id="flame-search" type="search" placeholder="高亮包含文字的方法"></label>
-          <button id="flame-reset" class="quiet-button" type="button">重置缩放</button>
-          <button id="profile-download" class="quiet-button" type="button">下载 collapsed 格式</button>
+          <button id="flame-reset" class="tools-button" type="button">重置缩放</button>
+          <button id="profile-download" class="tools-button" type="button">下载 collapsed 格式</button>
         </div>
-        <canvas id="flame" class="flame" aria-label="CPU 火焰图"></canvas>
-        <div id="flame-tip" class="flame-tip" hidden></div>
-        <h3 class="tools-subheading">最热方法（自身耗时）</h3>
+        <div class="flame-wrap">
+          <canvas id="flame" class="flame" aria-label="CPU 火焰图"></canvas>
+          <div id="flame-tip" class="flame-tip" hidden></div>
+        </div>
+      </section>
+      <section id="hot-methods" class="trace-list" hidden>
+        <h2 class="capture-heading">最热方法 <small>按自身采样数排序</small></h2>
         <div class="table-scroll"><table class="stats-table live-table tools-table">
           <caption class="sr-only">按自身采样数排序的方法</caption>
           <thead><tr><th>方法</th><th class="numeric">样本</th><th class="numeric">占比</th></tr></thead>
           <tbody id="hot-rows"></tbody>
         </table></div>
-      </div>
+      </section>
+      <p id="profile-empty" class="empty">还没有采样结果：点击“开始采样”生成火焰图</p>
     </section>
 
-    <section id="heap" class="trace-list tools-card">
-      <div class="tools-head">
-        <h2 class="capture-heading">堆直方图 <small>按类统计对象数量与大小</small></h2>
-      </div>
+    <section id="heap-panel" class="tools-panel" aria-label="堆直方图" hidden>
       <p class="tools-hint">统计存活对象，相当于 jmap -histo:live。每次采集与上一次对比，连续几次都在增长的类可能存在内存泄漏。</p>
       <div class="notice warning tools-warning">采集前会触发一次 Full GC，堆较大时应用会停顿数百毫秒甚至数秒；两次采集至少间隔 10 秒。</div>
-      <div class="metrics-controls tools-form">
+      <section class="metrics-controls stats-controls tools-form" aria-label="直方图参数">
         <label><span>显示行数</span><select id="histogram-limit"><option value="50">50</option><option value="100" selected>100</option><option value="200">200</option><option value="500">500</option></select></label>
         <button id="histogram-take" class="capture-primary operate" type="button">采集直方图</button>
-        <span id="histogram-baseline" class="tools-note"></span>
-      </div>
+        <span id="histogram-baseline" class="storage-summary"></span>
+      </section>
       <div id="histogram-facts" class="live-facts tools-facts" hidden></div>
-      <div id="histogram-growth" hidden>
-        <h3 class="tools-subheading">增长最多的类</h3>
+      <section id="histogram-growth" class="trace-list" hidden>
+        <h2 class="capture-heading">增长最多的类 <small>与上次采集对比</small></h2>
         <div class="table-scroll"><table class="stats-table live-table tools-table">
           <caption class="sr-only">与上次相比字节数增长最多的类</caption>
           <thead><tr><th>类</th><th class="numeric">实例</th><th class="numeric">实例变化</th><th class="numeric">大小</th><th class="numeric">大小变化</th></tr></thead>
           <tbody id="growth-rows"></tbody>
         </table></div>
-      </div>
-      <div id="histogram-table" hidden>
-        <h3 class="tools-subheading">占用最多的类</h3>
-        <div class="table-scroll"><table class="stats-table live-table tools-table">
+      </section>
+      <section id="histogram-table" class="trace-list" hidden>
+        <h2 class="capture-heading">占用最多的类</h2>
+        <div class="table-scroll tools-scroll"><table class="stats-table live-table tools-table">
           <caption class="sr-only">按字节数排序的类</caption>
           <thead><tr><th>类</th><th class="numeric">实例</th><th class="numeric">实例变化</th><th class="numeric">大小</th><th class="numeric">大小变化</th></tr></thead>
           <tbody id="histogram-rows"></tbody>
         </table></div>
-      </div>
+      </section>
     </section>
 
-    <section id="heap-dump" class="trace-list tools-card">
-      <div class="tools-head">
-        <h2 class="capture-heading">堆 Dump <small>敏感操作</small></h2>
-      </div>
+    <section id="heap-dump-panel" class="tools-panel" aria-label="堆 Dump" hidden>
       <p class="tools-hint">把存活对象写成 .hprof 文件并下载，可用 Eclipse MAT、VisualVM 或 IntelliJ IDEA 分析。文件先写到服务器临时目录，下载结束后立即删除。</p>
       <div class="notice warning tools-warning">生成期间应用会完全停顿，堆越大停顿越久；文件大小接近已用堆内存，会占用同样大小的磁盘空间和浏览器下载空间。Dump 包含内存中的全部数据（密码、令牌、个人信息），请妥善保管。</div>
-      <div class="metrics-controls tools-form">
+      <section class="metrics-controls stats-controls tools-form" aria-label="堆 Dump">
         <button id="heap-dump-start" class="capture-primary operate" type="button">生成并下载堆 Dump</button>
-        <span id="heap-dump-state" class="tools-note"></span>
-      </div>
+        <span id="heap-dump-state" class="storage-summary"></span>
+      </section>
     </section>
 
-    <section id="config" class="trace-list tools-card">
-      <div class="tools-head">
-        <h2 class="capture-heading">配置来源 <small>敏感操作</small></h2>
-      </div>
+    <section id="config-panel" class="tools-panel" aria-label="配置来源" hidden>
       <p class="tools-hint">查看配置项的最终值，以及按优先级排列的所有定义了它的配置源（命令行、环境变量、application.yml 等），排在第一位的生效。用于排查“配置为什么没生效”。值不做脱敏。</p>
-      <div class="metrics-controls tools-form">
+      <section class="metrics-controls stats-controls tools-form" aria-label="查询配置项">
         <label class="stats-search"><span>配置项</span><input id="config-name" type="text" maxlength="256" placeholder="例如 server.port 或 spring.datasource"></label>
         <button id="config-lookup" class="capture-primary operate" type="button">查看来源</button>
-        <button id="config-search" class="quiet-button operate" type="button">按前缀/关键字搜索</button>
-      </div>
-      <div id="config-result"></div>
+        <button id="config-search" class="tools-button operate" type="button">按前缀/关键字搜索</button>
+      </section>
+      <section id="config-result" class="trace-list tools-result" hidden></section>
     </section>
 
-    <section id="classes" class="trace-list tools-card">
-      <div class="tools-head">
-        <h2 class="capture-heading">类来源与 Jar 冲突</h2>
-      </div>
+    <section id="classes-panel" class="tools-panel" aria-label="类来源" hidden>
       <p class="tools-hint">查看一个类实际从哪个 Jar 加载、类路径上有几份副本以及类加载器链；或扫描类路径找出在多个 Jar 中重复出现的类。查询只加载类、不初始化类。</p>
-      <div class="metrics-controls tools-form">
+      <section class="metrics-controls stats-controls tools-form" aria-label="查询类">
         <label class="stats-search"><span>类名</span><input id="class-name" type="text" maxlength="500" placeholder="例如 com.fasterxml.jackson.databind.ObjectMapper"></label>
         <button id="class-lookup" class="capture-primary" type="button">查看来源</button>
-        <button id="class-scan" class="quiet-button operate" type="button">扫描重复类</button>
-      </div>
-      <div id="class-result"></div>
+        <button id="class-scan" class="tools-button operate" type="button">扫描重复类</button>
+      </section>
+      <section id="class-result" class="trace-list tools-result" hidden></section>
     </section>
     <footer>工具箱的所有操作都在点击时才执行，不会在后台持续运行；临时日志级别到期自动恢复，应用关闭时也会恢复。修改日志级别、CPU 采样、堆直方图、下载堆 Dump、查看配置值和扫描重复类需要 canOperate 权限。</footer>
   </main>
-  <script type="module" src="../assets/tools.js?v=20261111.2"></script>
+  <script type="module" src="../assets/tools.js?v=20261111.3"></script>
 </body>
 </html>

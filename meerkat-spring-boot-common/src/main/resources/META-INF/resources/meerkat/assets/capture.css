@@ -3,15 +3,10 @@
 .capture-form .capture-path { flex:2 1 260px; }
 .capture-form .capture-number { flex:0 0 110px; }
 .capture-form select { min-width:120px; height:40px; }
-.capture-primary { min-height:40px; padding:0 18px; border:1px solid var(--blue); border-radius:6px; background:var(--blue); color:#fff; font-weight:650; }
-.capture-primary:hover { filter:brightness(1.08); }
 .capture-warning { margin:12px 0 0; }
 .trace-list + .trace-list { margin-top:14px; }
-.capture-heading { margin:0; padding:14px 14px 10px; color:#26364e; font-size:15px; }
-.capture-heading small { color:var(--muted); font-size:12px; font-weight:500; }
 .capture-records-head { display:flex; align-items:center; justify-content:space-between; padding-right:14px; }
 .capture-records-head button { min-height:32px; padding:0 12px; border:1px solid #d6dee9; border-radius:6px; background:#fff; font-size:12px; }
-.capture-stop { min-height:28px; padding:0 10px; border:1px solid #f2c4c4; border-radius:5px; background:#fff; color:var(--red); font-size:12px; }
 .live-table tbody tr.is-selected td { background:#eef3ff; }
 .capture-tree { display:grid; gap:8px; }
 .capture-node { border:1px solid #e3e9f2; border-radius:7px; background:#fff; }

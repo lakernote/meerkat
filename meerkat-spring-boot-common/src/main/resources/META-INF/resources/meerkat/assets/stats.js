@@ -1,7 +1,7 @@
 import {
   $, DISABLED_MESSAGE, categoryNames, countsSince, formatBytes, formatMs, initializeEmbeddedAuth, lineChart, node, poll,
   request, showNotice
-} from './metrics-common.js?v=20261111.2'
+} from './metrics-common.js?v=20261111.3'
 
 const REFRESH_MS = 10000
 // Day ranges change slowly and read history files, so poll them less often.
@@ -258,8 +258,6 @@ async function refresh() {
     if (requestId !== refreshRequest) return true
     if (!activeCategory) activeCategory = next.categories.find(item => item.count > 0)?.category || 'HTTP'
     snapshot = next
-    $('instance').classList.add('connected')
-    $('instance').lastChild.textContent = t('已连接')
     if (next.collecting) $('notice').hidden = true
     else showNotice(NOT_COLLECTING_MESSAGE, true)
     render()
@@ -267,13 +265,10 @@ async function refresh() {
     return true
   } catch (error) {
     if (requestId !== refreshRequest) return true
-    $('instance').classList.remove('connected')
-    $('instance').lastChild.textContent = t('连接失败')
     showNotice(error.message === DISABLED_MESSAGE ? error.message : t('{message}。请检查应用权限和服务状态。', { message: error.message }))
     if (error.message === DISABLED_MESSAGE) {
       disabled = true
       poller?.stop()
-      $('instance').lastChild.textContent = t('未启用')
     }
     return false
   }

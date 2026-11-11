@@ -1,6 +1,6 @@
 import {
   $, categoryNames, countsSince, DISABLED_MESSAGE, formatValue, initializeEmbeddedAuth, lineChart, poll, request, stepLabel
-} from './metrics-common.js?v=20261111.2'
+} from './metrics-common.js?v=20261111.3'
 
 const PERIODS = new Set(['1h', '24h', '7d', '30d'])
 const REFRESH_MS = 60000
@@ -303,15 +303,10 @@ async function refresh() {
     $('empty').hidden = resourceList.length > 0
     $('empty').textContent = t('还没有资源指标：指标每分钟采样一次，请稍后刷新')
     $('storage').textContent = storageText(storage)
-    $('instance').classList.toggle('degraded', !storage.persistent)
-    $('instance').classList.add('connected')
-    $('instance').lastChild.textContent = t(storage.persistent ? '已连接' : '存储降级')
     $('notice').hidden = true
     return true
   } catch (error) {
     if (requestId !== refreshRequest) return true
-    $('instance').classList.remove('connected')
-    $('instance').lastChild.textContent = t(error.message === DISABLED_MESSAGE ? '未启用' : '连接失败')
     $('notice').textContent = error.message
     $('notice').hidden = false
     if (error.message === DISABLED_MESSAGE) {
