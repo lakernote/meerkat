@@ -155,17 +155,6 @@ public final class TraceContext {
         return new ScopedSpan(current.trace, Thread.currentThread().getId(), span, current, installed);
     }
 
-    /** Lock-free check used by log appenders before they format a message. */
-    static boolean hasFrame() {
-        return CURRENT_FRAME.get() != null;
-    }
-
-    /** Adds a log line to the trace running on this thread, attributed to the current span; no-op otherwise. */
-    static void recordLog(String level, String logger, String message) {
-        ExecutionFrame current = CURRENT_FRAME.get();
-        if (current != null) current.trace.recordLog(current.span, level, logger, message);
-    }
-
     /** Where to record request data on the current span, or {@code null} when the current trace is not captured. */
     public static CaptureTarget currentCaptureTarget() {
         ExecutionFrame current = CURRENT_FRAME.get();
@@ -211,8 +200,7 @@ public final class TraceContext {
                 boolean captureTree = trace.explicitTreeRequired() || trace.slow() || trace.error();
                 result = new TraceCompletion(captureTree ? trace.renderTree() : "",
                         captureTree ? trace.snapshotNodes() : List.of(), costMs, trace.slow(), trace.error(),
-                        trace.diagnosticReasons(), trace.errorType(), trace.errorMessage(), trace.errorStackTrace(),
-                        captureTree || trace.capturing() ? trace.logs() : List.of());
+                        trace.diagnosticReasons(), trace.errorType(), trace.errorMessage(), trace.errorStackTrace());
                 captured = trace.takeCapture();
             }
             String traceId = TraceIdContext.currentTraceId();

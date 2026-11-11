@@ -10,4 +10,3 @@ io.github.lakernote.meerkat.autoconfigure.OkHttpObservationAutoConfiguration
 io.github.lakernote.meerkat.autoconfigure.JdbcTraceAutoConfiguration
 io.github.lakernote.meerkat.autoconfigure.RestTemplateObservationAutoConfiguration
 io.github.lakernote.meerkat.autoconfigure.TrafficCaptureAutoConfiguration
-io.github.lakernote.meerkat.autoconfigure.TraceLogAutoConfiguration

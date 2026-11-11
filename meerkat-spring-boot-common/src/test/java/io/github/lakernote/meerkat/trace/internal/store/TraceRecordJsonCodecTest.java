@@ -2,7 +2,6 @@ package io.github.lakernote.meerkat.trace.internal.store;
 
 import com.jayway.jsonpath.DocumentContext;
 import com.jayway.jsonpath.JsonPath;
-import io.github.lakernote.meerkat.trace.internal.TraceLog;
 import io.github.lakernote.meerkat.trace.internal.TraceNode;
 import org.junit.jupiter.api.Test;
 
@@ -37,9 +36,6 @@ class TraceRecordJsonCodecTest {
         assertThat(document.read("$.treeNodes[0].children[0].name", String.class)).isEqualTo("SQL select");
         assertThat(document.read("$.treeNodes[0].startOffsetMs", Long.class)).isZero();
         assertThat(document.read("$.highAllocation", Boolean.class)).isTrue();
-        assertThat(document.read("$.logs[0].logger", String.class)).isEqualTo("com.example.Orders");
-        assertThat(document.read("$.logs[0].message", String.class)).isEqualTo(TRICKY);
-        assertThat(document.read("$.logs[1].offsetMs", Long.class)).isEqualTo(845L);
     }
 
     @Test
@@ -65,7 +61,8 @@ class TraceRecordJsonCodecTest {
     @Test
     void ignoresUnknownFieldsAndDefaultsMissingOnes() throws IOException {
         String json = "{ \"traceId\" : \"t-1\", \"future\": {\"nested\": [1, -2.5e3, true, null, \"x\", {}]},"
-                + " \"treeNodes\": [{\"name\": \"n\", \"extra\": [[]]}], \"sourceType\": \"HTTP\", \"slow\": true }";
+                + " \"treeNodes\": [{\"name\": \"n\", \"extra\": [[]]}], \"sourceType\": \"HTTP\", \"slow\": true,"
+                + " \"logs\": [{\"offsetMs\": 1, \"level\": \"INFO\", \"message\": \"from an older archive\"}] }";
 
         TraceRecord trace = CODEC.read(json.getBytes(StandardCharsets.UTF_8));
 
@@ -138,8 +135,6 @@ class TraceRecordJsonCodecTest {
                 .threadId(77).threadName("http-nio-1").cpuTimeMs(Long.MAX_VALUE).allocatedBytes(Long.MIN_VALUE)
                 .errorType("HTTP_5XX").errorMessage(TRICKY)
                 .errorStackTrace("java.lang.IllegalStateException\n\tat x.y(Z.java:1)")
-                .logs(List.of(new TraceLog(3, "INFO", "com.example.Orders", "http-nio-1", "HTTP GET", TRICKY),
-                        new TraceLog(845, "OMITTED", "meerkat", "", "", "2 more")))
                 .build();
     }
 

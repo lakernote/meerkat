@@ -1,5 +1,4 @@
 import { $, initializeEmbeddedAuth, kindName, node, request as apiRequest } from './common.js?v=20261106.11'
-import { renderTraceLogs } from './trace-logs.js?v=20261106.12'
 
 const PAGE_SIZE = 50
 let traces = { items: [], nextCursor: null, scanLimited: false, total: 0 }
@@ -353,7 +352,6 @@ async function openTrace(summary) {
   $('error-stack-details').open = false
   $('tree').replaceChildren(node('p', 'tree-empty', t('正在读取调用树…')))
   $('span-detail').replaceChildren()
-  $('trace-logs').replaceChildren()
   $('error-section').hidden = true
   $('detail-dialog').showModal()
   $('detail-title').focus()
@@ -380,8 +378,6 @@ async function openTrace(summary) {
       $('error-stack').textContent = detail.errorStackTrace || t('当前异常没有可用的堆栈。')
     }
     renderTraceTree($('tree'), $('span-detail'), detail.treeNodes, Number(detail.durationMs || 0))
-    const logs = renderTraceLogs(detail.logs)
-    if (logs) $('trace-logs').replaceChildren(logs)
   } catch (error) {
     if (requestId !== detailRequest || !$('detail-dialog').open) return
     $('tree').replaceChildren(node('p', 'tree-empty', error.message))

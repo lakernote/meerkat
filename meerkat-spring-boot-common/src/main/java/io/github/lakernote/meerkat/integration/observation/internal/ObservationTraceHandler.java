@@ -298,7 +298,6 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
                 .errorType(completion.errorType())
                 .errorMessage(completion.errorMessage())
                 .errorStackTrace(completion.stackTrace())
-                .logs(completion.logs())
                 .build();
         try {
             traceStore.add(trace);

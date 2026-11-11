@@ -26,6 +26,8 @@ Meerkat 在应用内部回答两个日常问题：
 
 不必先部署一套观测平台就能用起来，也能和已有平台并存。
 
+面向长期运行中的问题发现与定位：常驻汇总指标、保留诊断 Trace；请求和响应体、SQL 参数与结果等详细数据，仅在授权用户主动启动流量抓取后采集。
+
 ![Trace 详情时间线](docs/images/trace-detail-timeline.png)
 
 ## 功能
@@ -33,9 +35,8 @@ Meerkat 在应用内部回答两个日常问题：
 - **Trace 诊断**：HTTP、定时任务、Kafka 消费入口中慢、出错或 CPU/内存分配超阈值的调用树；循环里重复的 SQL 合并成一行并提示 N+1。
 - **调用排行**：按接口、SQL、远程调用、Redis 命令、定时任务和 Kafka Topic 统计次数、错误率、平均/P95/最大和总耗时，入口另有 CPU 和内存分配；可看最近 1 小时到 30 天，重启不丢。
 - **指标趋势**：JVM 内存与 GC、CPU、线程、Hikari 连接池、线程池、Tomcat，复用 Spring Boot 已绑定的 Micrometer 指标。
-- **实时诊断**：进行中请求卡在哪一步、线程 CPU 排行、死锁检测、合并堆栈、线程 Dump，以及数据库连接被谁占用（含疑似泄漏）；按需读取，不在后台采样。
+- **实时诊断**：进行中请求卡在哪一步、线程 CPU 排行、死锁检测、合并堆栈、线程 Dump；按需读取，不在后台采样。
 - **异常聚合**：失败 Trace 按异常类型和消息归并，给出次数、分布和"新出现"标记，一堆相同报错一眼看成一个问题。
-- **Trace 内日志**：慢调用和失败 Trace 附带该请求执行期间应用打印的日志，并标出所在步骤，见[Trace 里的应用日志](docs/guide.zh-CN.md#trace-里的应用日志)。
 - **流量抓取**：按规则抓取指定请求的完整现场——请求和响应体、SQL 及参数和结果、Redis 命令和返回值、下游 HTTP 调用，用 Trace ID 串成一条记录。仅 `canCapture()` 授权的人可用（默认无人），见[流量抓取](docs/guide.zh-CN.md#流量抓取)。
 - **工具箱**：不依赖 Java Agent 的按需诊断——临时修改日志级别并自动恢复、CPU 采样火焰图、堆直方图及与上次相比的增长、堆转储、查看配置属性来自哪个配置源、查看类从哪个 jar 加载以及重复类。见[工具箱](docs/guide.zh-CN.md#工具箱)。
 - **自包含**：数据存在本地文件，按保留期和容量上限清理；不影响应用已有的 Prometheus 等 Micrometer 导出。
@@ -67,14 +68,22 @@ Meerkat 在应用内部回答两个日常问题：
 
 ## 自动采集范围
 
-| 组件 | 无需写代码即可采集 |
-| --- | --- |
-| 入口 | Spring MVC 请求、`@Scheduled` 定时任务、`@KafkaListener` |
-| 数据库 | JDBC / 任意 `DataSource` Bean（MyBatis、JPA、JdbcTemplate）、事务 |
-| Redis | Lettuce；基于 Redisson 连接工厂的 Spring Data Redis |
-| HTTP 客户端 | `RestTemplate`、`RestClient`、`@FeignClient`、`OkHttpClient` Bean（自动传递 Trace ID） |
-| 消息 | `KafkaTemplate` 发送与监听消费，按 Trace ID 串联 |
-| 异步 | `@Async`、`ThreadPoolTaskExecutor` 和 `SimpleAsyncTaskExecutor` Bean |
+| 模式 | 何时采集 | 采集方式与保留内容 |
+| --- | --- | --- |
+| Trace | 默认持续运行 | 在内存中记录有界调用树，保留慢、出错或入口线程 CPU 时间、内存分配量超阈值的入口 Trace |
+| Metrics | 默认持续运行 | 与 Trace 共用调用采集点，汇总次数、错误和耗时；复用 Micrometer 资源指标，定期保存趋势 |
+| 流量抓取 | 授权用户主动启动 | 按规则匹配 HTTP 请求，额外记录请求/响应体、SQL 参数与结果、Redis 参数与返回值及下游 HTTP 数据，按时长、次数和大小限制保留 |
+
+以上模式通过以下集成接入应用：
+
+| 组件 | 无需写代码即可采集 | 如何采集 |
+| --- | --- | --- |
+| 入口 | Spring MVC 请求、`@Scheduled` 定时任务、`@KafkaListener` | 接收 Spring Observation，建立入口 Trace，记录耗时、状态和错误 |
+| 数据库 | 可兼容包装的 JDBC `DataSource` Bean（MyBatis、JPA、JdbcTemplate）、事务 | 数据源代理监听 SQL 执行；Spring 事务监听器记录事务范围 |
+| Redis | Lettuce；基于 Redisson 连接工厂的 Spring Data Redis | 接入 Lettuce Observation；代理 Redisson 连接工厂的命令调用 |
+| HTTP 客户端 | `RestTemplate`、`RestClient`、`@FeignClient`、`OkHttpClient` Bean | 接入客户端 Observation 或拦截器，记录调用并传递 Trace ID |
+| 消息 | `KafkaTemplate` 发送与监听消费 | 通过 Spring Kafka Observation 和消息头关联生产与消费 Trace |
+| 异步 | `@Async`、`ThreadPoolTaskExecutor` 和 `SimpleAsyncTaskExecutor` Bean | 用 `TaskDecorator` 传播 Trace 上下文，记录任务步骤、耗时和错误 |
 
 自定义步骤可用 `@TraceSpan` 或 `TraceBlock`。具体边界见[指南](docs/guide.zh-CN.md#自动采集范围)。
 
@@ -88,9 +97,9 @@ Meerkat 在应用内部回答两个日常问题：
 | --- | --- |
 | 一次入口（HTTP 请求、定时任务、Kafka 消息） | 约 1.7 µs |
 | 每次依赖调用（Redis、HTTP、Kafka 发送等） | 约 0.3 µs |
-| 每条 SQL | 约 0.1–0.2 µs |
+| 每条 SQL 的监听器处理 | 约 0.1–0.2 µs |
 
-包含 20 次依赖调用的请求合计约 7 µs：1 ms 的请求增加不到 1%，10 ms 的请求不到 0.1%。写盘在后台线程进行。详见[性能开销](docs/guide.zh-CN.md#性能开销)。
+包含 20 次依赖调用的请求合计约 7 µs：1 ms 的请求增加不到 1%，10 ms 的请求不到 0.1%。SQL 数字只覆盖监听器处理，不代表完整 JDBC 代理链开销。写盘在后台线程进行。详见[性能开销](docs/guide.zh-CN.md#性能开销)。
 
 ## 界面预览
 

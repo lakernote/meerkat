@@ -6,8 +6,8 @@
   <meta name="color-scheme" content="light">
   <title>Meerkat · 实时诊断</title>
   <link rel="icon" type="image/png" href="../assets/meerkat-icon.png?v=20261106.12">
-  <script defer src="../assets/i18n.js?v=20261106.19"></script>
-  <link rel="stylesheet" href="../assets/dashboard.css?v=20261106.13">
+  <script defer src="../assets/i18n.js?v=20261111.1"></script>
+  <link rel="stylesheet" href="../assets/dashboard.css?v=20261111.1">
   <link rel="stylesheet" href="../assets/metrics.css?v=20261106.11">
   <link rel="stylesheet" href="../assets/stats.css?v=20261106.11">
   <link rel="stylesheet" href="../assets/live.css?v=20261106.11">
@@ -41,7 +41,6 @@
     <nav class="sub-nav" aria-label="实时诊断视图">
       <a id="tab-requests" class="active" aria-current="page" href="#requests">进行中请求</a>
       <a id="tab-threads" href="#threads">线程</a>
-      <a id="tab-connections" href="#connections">数据库连接</a>
     </nav>
     <div id="notice" class="notice" role="status" hidden></div>
 
@@ -80,25 +79,6 @@
         <p id="threads-empty" class="empty" hidden>没有匹配的线程</p>
       </section>
     </section>
-    <section id="connections-panel" aria-label="数据库连接" hidden>
-      <section class="metrics-controls stats-controls" aria-label="连接筛选">
-        <label><span>已占用</span><select id="min-held"><option value="0" selected>全部</option><option value="1000">≥ 1 秒</option><option value="10000">≥ 10 秒</option><option value="60000">≥ 1 分钟</option></select></label>
-        <label class="live-toggle"><input id="leaks-only" type="checkbox"><span>只看疑似泄漏</span></label>
-        <label class="live-toggle"><input id="auto-refresh-connections" type="checkbox" checked><span>每 5 秒自动刷新</span></label>
-        <div id="connections-summary" class="storage-summary" role="status">读取中</div>
-      </section>
-      <div id="connection-cards" class="live-cards"></div>
-      <section class="trace-list">
-        <div class="table-scroll"><table class="stats-table live-table">
-          <caption class="sr-only">已从连接池取出且尚未关闭的数据库连接，按占用时间排序；选择一行查看持有线程当前堆栈</caption>
-          <thead><tr><th>数据源</th><th class="numeric">已占用</th><th>持有线程</th><th>Trace ID</th><th>状态</th></tr></thead>
-          <tbody id="connection-rows"></tbody>
-        </table></div>
-        <p id="connections-empty" class="empty" hidden>当前没有被占用的数据库连接</p>
-      </section>
-      <p class="stats-detail-status">疑似泄漏：取连接的请求已经结束，但连接仍未关闭（未归还连接池）。持有线程的堆栈是当前时刻的堆栈，线程可能已在处理别的请求。</p>
-    </section>
-
     <footer>进行中请求只包含 HTTP、定时任务和 Kafka 消费入口；异步请求在入口线程返回后不再显示线程和堆栈。线程 CPU 使用率为 1 秒采样内占用单个核心的比例，100% 表示占满一个核心。虚拟线程不在线程列表中。</footer>
   </main>
   <script type="module" src="../assets/live.js?v=20261106.15"></script>

@@ -1,6 +1,5 @@
 package io.github.lakernote.meerkat.trace.internal.store;
 
-import io.github.lakernote.meerkat.trace.internal.TraceLog;
 import io.github.lakernote.meerkat.trace.internal.TraceNode;
 
 import java.io.IOException;
@@ -59,27 +58,7 @@ class TraceRecordJsonCodec {
         field(out, "errorStackTrace", false); string(out, trace.errorStackTrace());
         field(out, "highCpu", false); out.append(trace.highCpu());
         field(out, "highAllocation", false); out.append(trace.highAllocation());
-        if (!trace.logs().isEmpty()) {
-            field(out, "logs", false); logs(out, trace.logs());
-        }
         out.append('}');
-    }
-
-    private static void logs(StringBuilder out, List<TraceLog> logs) {
-        out.append('[');
-        for (int index = 0; index < logs.size(); index++) {
-            TraceLog log = logs.get(index);
-            if (index > 0) out.append(',');
-            out.append('{');
-            field(out, "offsetMs", true); out.append(log.offsetMs());
-            field(out, "level", false); string(out, log.level());
-            field(out, "logger", false); string(out, log.logger());
-            field(out, "thread", false); string(out, log.thread());
-            field(out, "step", false); string(out, log.step());
-            field(out, "message", false); string(out, log.message());
-            out.append('}');
-        }
-        out.append(']');
     }
 
     private static void nodes(StringBuilder out, List<TraceNode> nodes){
@@ -187,7 +166,6 @@ class TraceRecordJsonCodec {
             String errorStackTrace = "";
             boolean highCpu = false;
             boolean highAllocation = false;
-            List<TraceLog> logs = List.of();
 
             expect('{');
             if (!consumeIf('}')) {
@@ -215,7 +193,6 @@ class TraceRecordJsonCodec {
                         case "errorStackTrace" -> errorStackTrace = readNullableString();
                         case "highCpu" -> highCpu = readBoolean();
                         case "highAllocation" -> highAllocation = readBoolean();
-                        case "logs" -> logs = readLogs();
                         default -> skipValue();
                     }
                 } while (consumeIf(','));
@@ -223,51 +200,7 @@ class TraceRecordJsonCodec {
             }
             return new TraceRecord(id, traceId, name, tag, status, durationMs, slow, error,
                     treeNodes, finishedAt, threadId, cpuTimeMs, allocatedBytes, sourceType, errorType, errorMessage,
-                    threadName, errorStackTrace, highCpu, highAllocation, logs);
-        }
-
-        private List<TraceLog> readLogs() throws IOException {
-            if (consumeLiteral("null")) return List.of();
-            enter();
-            expect('[');
-            List<TraceLog> logs = new ArrayList<>();
-            if (!consumeIf(']')) {
-                do {
-                    logs.add(readLog());
-                } while (consumeIf(','));
-                expect(']');
-            }
-            depth--;
-            return logs;
-        }
-
-        private TraceLog readLog() throws IOException {
-            long offsetMs = 0;
-            String level = "";
-            String logger = "";
-            String thread = "";
-            String step = "";
-            String message = "";
-            enter();
-            expect('{');
-            if (!consumeIf('}')) {
-                do {
-                    String field = readString();
-                    expect(':');
-                    switch (field) {
-                        case "offsetMs" -> offsetMs = readLong();
-                        case "level" -> level = readNullableString();
-                        case "logger" -> logger = readNullableString();
-                        case "thread" -> thread = readNullableString();
-                        case "step" -> step = readNullableString();
-                        case "message" -> message = readNullableString();
-                        default -> skipValue();
-                    }
-                } while (consumeIf(','));
-                expect('}');
-            }
-            depth--;
-            return new TraceLog(offsetMs, level, logger, thread, step, message);
+                    threadName, errorStackTrace, highCpu, highAllocation);
         }
 
         private List<TraceNode> readNodes() throws IOException {

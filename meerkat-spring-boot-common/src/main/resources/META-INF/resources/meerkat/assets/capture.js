@@ -1,5 +1,4 @@
 import { $, initializeEmbeddedAuth, kindName, node, request, showNotice } from './common.js?v=20261106.11'
-import { renderTraceLogs } from './trace-logs.js?v=20261106.12'
 
 const DENIED = t('没有流量抓取的权限，请登录或检查 ObservabilityAccessPolicy.canCapture')
 const DISABLED = t('流量抓取不可用：需要开启 meerkat.trace.enabled')
@@ -222,8 +221,6 @@ function renderRecord(record) {
     wrapper.append(field('error', `${record.errorType}: ${record.errorMessage}\n${record.errorStackTrace}`.trim()))
   }
   for (const item of record.nodes) wrapper.append(renderNode(item, true))
-  const logs = renderTraceLogs(record.logs)
-  if (logs) wrapper.append(logs)
   return wrapper
 }
 

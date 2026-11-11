@@ -1,6 +1,5 @@
 package io.github.lakernote.meerkat.diagnostics.internal;
 
-import io.github.lakernote.meerkat.integration.jdbc.internal.JdbcConnections;
 import io.github.lakernote.meerkat.trace.internal.ActiveTraces;
 import io.github.lakernote.meerkat.trace.internal.ThreadResourceSnapshot;
 
@@ -76,35 +75,6 @@ public final class LiveDiagnostics {
                     info == null ? List.of() : stack(info, STACK_DEPTH)));
         }
         return new ActiveRequests(now, running.size(), items);
-    }
-
-    /**
-     * Connections taken from traced data sources and not yet closed, longest held first, with the holder thread's
-     * current state and stack. A connection whose trace has already finished is flagged {@code suspectedLeak}: the
-     * request that took it returned without closing it.
-     */
-    public OpenConnections openConnections() {
-        JdbcConnections.Snapshot snapshot = JdbcConnections.snapshot();
-        List<JdbcConnections.OpenConnection> open = snapshot.items();
-        List<JdbcConnections.OpenConnection> shown = open.subList(0, Math.min(MAX_REQUESTS, open.size()));
-        Set<String> running = new HashSet<>();
-        for (ActiveTraces.ActiveTrace trace : ActiveTraces.snapshot()) running.add(trace.traceId());
-        Map<Long, ThreadInfo> infos = threadInfos(shown.stream()
-                .mapToLong(JdbcConnections.OpenConnection::threadId).distinct().toArray());
-        Map<String, Integer> byDataSource = new LinkedHashMap<>();
-        for (JdbcConnections.OpenConnection connection : open) byDataSource.merge(connection.dataSource(), 1, Integer::sum);
-        List<OpenConnection> items = new ArrayList<>(shown.size());
-        int suspected = 0;
-        for (JdbcConnections.OpenConnection connection : shown) {
-            boolean leak = !connection.traceId().isEmpty() && !running.contains(connection.traceId());
-            if (leak) suspected++;
-            ThreadInfo info = infos.get(connection.threadId());
-            items.add(new OpenConnection(connection.dataSource(), connection.connectionId(), connection.openedAt(),
-                    connection.heldMs(), connection.threadId(), connection.threadName(), connection.traceId(), leak,
-                    info == null ? "TERMINATED" : info.getThreadState().name(),
-                    info == null ? List.of() : stack(info, STACK_DEPTH)));
-        }
-        return new OpenConnections(Instant.now(), open.size(), snapshot.untracked(), suspected, byDataSource, items);
     }
 
     /**
@@ -275,21 +245,6 @@ public final class LiveDiagnostics {
     /** {@code ClassName@identityHash}, matching {@link LockInfo#toString()}. */
     private static String lockName(LockInfo lock) {
         return lock == null ? null : lock.getClassName() + "@" + Integer.toHexString(lock.getIdentityHashCode());
-    }
-
-    /**
-     * @param total         open connections tracked, of which at most 200 are listed
-     * @param untracked     connections opened beyond the tracking cap and never listed
-     * @param suspectedLeaks listed connections whose trace has finished
-     */
-    public record OpenConnections(Instant capturedAt, int total, long untracked, int suspectedLeaks,
-                                  Map<String, Integer> byDataSource, List<OpenConnection> items) {
-    }
-
-    /** @param threadState the holder thread's state now, or {@code TERMINATED} once it has exited */
-    public record OpenConnection(String dataSource, String connectionId, Instant openedAt, long heldMs, long threadId,
-                                 String threadName, String traceId, boolean suspectedLeak, String threadState,
-                                 List<String> stack) {
     }
 
     public record ActiveRequests(Instant capturedAt, int total, List<ActiveRequest> items) {

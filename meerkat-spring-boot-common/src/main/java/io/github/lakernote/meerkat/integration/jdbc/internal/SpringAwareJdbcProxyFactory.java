@@ -61,7 +61,6 @@ public final class SpringAwareJdbcProxyFactory implements JdbcProxyFactory {
 
     @Override
     public Connection createConnection(Connection connection, ConnectionInfo connectionInfo, ProxyConfig proxyConfig) {
-        JdbcConnectionListener.opened(connectionInfo);
         return delegate.createConnection(connection, connectionInfo, proxyConfig);
     }
 

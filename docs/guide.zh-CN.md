@@ -63,10 +63,6 @@ JDBC 采集会使用保留原数据源具体类型的代理，因此按 `HikariD
 | `meerkat.trace.retention` | `7d` | 诊断 Trace 保留天数，整天，范围 `1d`～`365d` |
 | `meerkat.trace.max-storage-size` | `128MB` | 诊断 Trace 磁盘占用上限，超出时删除最旧的分段文件 |
 | `meerkat.trace.max-memory-size` | `32MB` | 内存中缓存最新 Trace 完整调用树的堆内存上限（按估算大小淘汰最旧的）；更早的记录在打开详情时从磁盘读取，存储不可用时直接丢弃 |
-| `meerkat.trace.logs.enabled` | `true` | 把应用自己打印的日志挂到慢调用和失败 Trace 上，见[Trace 里的应用日志](#trace-里的应用日志) |
-| `meerkat.trace.logs.max-per-trace` | `100` | 每条 Trace 最多保留的日志行数；超出的只计数，并以"已省略"标出 |
-| `meerkat.trace.logs.max-message-chars` | `1000` | 每行日志消息最多保留的字符数（最小 80） |
-| `meerkat.trace.logs.max-buffered-size` | `16MB` | 所有进行中 Trace 的日志行共享的堆内存上限；超出后新行被省略，直到有 Trace 结束释放 |
 | `meerkat.metrics.enabled` | `true` | 运行指标（调用统计与资源指标）总开关 |
 | `meerkat.metrics.max-operations` | `1000` | 所有类别合计最多统计的操作数，超出后新操作按类别并入“其他”行；2 小时没有调用的操作会释放名额 |
 | `meerkat.metrics.retention` | `30d` | 指标历史保留时长，须为整天数，范围 `1d` 至 `365d` |
@@ -174,9 +170,8 @@ Trace 页面的 **异常聚合** 面板展示同样的数据：同类失败合�
 
 - **进行中请求：** 列出正在执行的 HTTP、定时任务和 Kafka 消费入口，按已执行时间排序，显示入口线程已消耗的 CPU 时间、当前正在执行的最内层步骤（例如某条 SQL 或远程调用及其已执行时间）和线程状态；展开一行查看该线程此刻的堆栈和正在等待的锁。默认每 5 秒刷新。请求转为异步处理、入口线程已返回后，只显示耗时和当前步骤，不显示线程堆栈。最多显示 200 个，诊断页面自身的请求不计入。
 - **线程：** 对全部平台线程采样 1 秒，按 CPU 使用率（100% 表示占满一个核心）排序，显示状态、累计 CPU、等待的锁及持有者，展开查看堆栈；检测到死锁时在顶部列出相关线程。勾选“合并相同堆栈”可以把状态和堆栈相同的线程合为一行，便于发现大量线程卡在同一处。可下载 jstack 格式的线程 Dump 文本。虚拟线程不在列表中。
-- **数据库连接：** 列出从被追踪数据源取出、尚未关闭（未归还连接池）的 JDBC 连接，按占用时间排序，显示数据源、取连接的线程、所属 Trace ID，以及该线程*此刻*的状态和堆栈。取连接的请求已经结束而连接仍未关闭的，标记为**疑似泄漏**。连接池耗尽（如 “Connection is not available, request timed out”）时可在这里看到是谁占着连接。顶部卡片显示占用总数、疑似泄漏数和各数据源的占用数。只覆盖经 Meerkat JDBC 追踪包装的数据源；应用自行创建的 `ProxyDataSource` Bean 不在统计内。
 
-每个入口只在开始和结束时各做一次并发集合的增删，不影响请求耗时。连接跟踪同理：每次 `getConnection` 一次 Map 写入、每次 `close` 一次删除，不采集堆栈，最多跟踪 10,000 个未关闭连接（超出部分只计数不列出）；堆栈只在页面请求时读取。线程采样同一时间只允许一个，正在采样时再次请求返回 429。
+每个入口只在开始和结束时各做一次并发集合的增删，不影响请求耗时；堆栈只在页面请求时读取。线程采样同一时间只允许一个，正在采样时再次请求返回 429。
 
 查询 API（均为 `GET`，前缀 `/api/meerkat/live`）：`/requests`、`/connections`、`/threads?sampleMs=0..5000`（默认 1000）、`/threads/dump`（`text/plain` 附件；同一时间只生成一份，且两次间隔至少 5 秒，否则返回 429）。
 
@@ -315,14 +310,6 @@ MDC 键名与 Micrometer Tracing 的 `traceId`、`spanId` 不同，但取值会�
 
 出站只写 `X-Trace-Id`。`traceparent`、B3 等标准头由 Micrometer Tracing 负责写入，Meerkat 不重复写，以免改动下游服务的采样决策。SkyWalking 的 `sw8` 头目前不识别。
 
-## Trace 里的应用日志
-
-Trace 详情和流量抓取记录会附上请求执行期间应用自己打印的日志——级别、Logger、线程、当时所在的步骤（Span）以及距请求开始的时间——排查慢调用或失败请求时不用再去日志系统里另外搜。随日志一起打印的异常会以 `| 异常类: 消息` 追加在行尾，完整堆栈仍在你的日志文件里。
-
-Meerkat 在 Logback 或 Log4j2（取应用实际使用的那个）的 root logger 上挂一个 appender，Spring Boot 或应用重新配置日志后会自动重新挂上。只收集通过了你的日志级别的行；设置了 `additivity=false` 的 logger 不会传到 root，因此不会被收集。子线程里打印的日志在 Trace 上下文传递到该线程时也会收集（见 [Kafka 与线程池](#kafka-与线程池)）。
-
-请求是否慢或失败要到结束时才知道，所以每个进行中的 Trace 都会先缓存日志，快速成功的请求结束时直接丢弃。缓存受 `max-per-trace`、`max-message-chars` 和全局共享的 `max-buffered-size` 约束，Trace 结束即释放。不在 Trace 内时 appender 只做一次 ThreadLocal 读取。可用 `meerkat.trace.logs.enabled=false` 关闭。
-
 ## Kafka 与线程池
 
 Starter 会为 Spring 容器中的 `KafkaTemplate` 和 Listener Factory 打开 Observation，无需配置 `spring.kafka.template/listener.observation-enabled`；显式设为 `false` 时尊重应用配置。默认 Listener Factory 会自动接入 Trace ID 拦截器；应用使用自定义 `RecordInterceptor` 时，需要按应用现有配置组合 `TraceIdRecordInterceptor`。批量 Listener、自定义消费者、Kafka Streams 不在自动覆盖范围内。
@@ -353,9 +340,6 @@ executorService.submit(decorator.decorate(task));
 | `TraceBlock`，不在 Trace 中 | — | 18 ns | 直接执行业务代码，不记录 |
 | 一个入口 Trace 内 10 个 `TraceBlock` | — | 1.0 µs | 每个 Span 约 0.1 µs |
 | `TraceContextTaskDecorator` 装饰并执行一个任务 | — | 0.27 µs（无 Trace）/ 0.37 µs（Trace 内） | 无父 Trace 时会为任务生成新的 Trace ID |
-| 开启 Trace 日志后，Trace 外打印一行日志 | — | 1 ns | 无内存分配 |
-| 开启 Trace 日志后，Trace 内打印一行日志 | — | 20 ns | 每行分配约 50–75 B；日志预算按 8 KB 分块预留 |
-| 开启连接追踪后，从连接池取一次 JDBC 连接 | — | +0.12 µs | 为实时连接视图记录持有者 |
 
 对于耗时 1 ms 以上的请求，这部分开销低于 1%；10 ms 的请求低于 0.1%。慢请求、错误和资源超阈值的入口还会被写入内存列表并在后台线程异步归档，归档 I/O 不在业务线程上执行。
 

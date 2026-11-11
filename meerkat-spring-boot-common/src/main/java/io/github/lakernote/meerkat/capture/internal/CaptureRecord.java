@@ -1,6 +1,5 @@
 package io.github.lakernote.meerkat.capture.internal;
 
-import io.github.lakernote.meerkat.trace.internal.TraceLog;
 import io.github.lakernote.meerkat.trace.internal.TraceNode;
 
 import java.time.Instant;
@@ -10,16 +9,8 @@ import java.util.Map;
 /** One captured request with the full call tree and the data recorded on each node. */
 public record CaptureRecord(String id, String sessionId, String traceId, String method, String path, int status,
                             long durationMs, boolean error, Instant finishedAt, String errorType,
-                            String errorMessage, String errorStackTrace, List<TraceNode> nodes, List<TraceLog> logs) {
-    public CaptureRecord(String id, String sessionId, String traceId, String method, String path, int status,
-                         long durationMs, boolean error, Instant finishedAt, String errorType, String errorMessage,
-                         String errorStackTrace, List<TraceNode> nodes) {
-        this(id, sessionId, traceId, method, path, status, durationMs, error, finishedAt, errorType, errorMessage,
-                errorStackTrace, nodes, List.of());
-    }
-
+                            String errorMessage, String errorStackTrace, List<TraceNode> nodes) {
     public CaptureRecord {
-        logs = logs == null ? List.of() : List.copyOf(logs);
         errorType = errorType == null ? "" : errorType;
         errorMessage = errorMessage == null ? "" : errorMessage;
         errorStackTrace = errorStackTrace == null ? "" : errorStackTrace;
@@ -31,10 +22,6 @@ public record CaptureRecord(String id, String sessionId, String traceId, String 
         long bytes = 256 + chars(id) + chars(sessionId) + chars(traceId) + chars(method) + chars(path)
                 + chars(errorType) + chars(errorMessage) + chars(errorStackTrace);
         for (TraceNode node : nodes) bytes += estimatedBytes(node);
-        for (TraceLog log : logs) {
-            bytes += 96 + chars(log.level()) + chars(log.logger()) + chars(log.thread()) + chars(log.step())
-                    + chars(log.message());
-        }
         return bytes;
     }
 

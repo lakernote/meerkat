@@ -116,7 +116,7 @@ public final class CaptureFilter implements Filter {
             root.beginCapture((completion, nodes) -> store.add(new CaptureRecord(recordId, match.sessionId(),
                     traceId == null ? "" : traceId, method, fullPath, status(), completion.costMs(),
                     completion.error() || status() >= 500, Instant.now(), completion.errorType(),
-                    completion.errorMessage(), completion.stackTrace(), nodes, completion.logs())),
+                    completion.errorMessage(), completion.stackTrace(), nodes)),
                     new CaptureLimits(maxBody, limits.getMaxResultRows(), limits.getMaxValueChars(),
                             limits.getMaxTraceChars()));
             target = root.captureTarget();

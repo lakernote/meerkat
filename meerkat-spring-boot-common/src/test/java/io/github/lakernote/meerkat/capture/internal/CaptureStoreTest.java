@@ -39,8 +39,7 @@ class CaptureStoreTest {
         TraceNode root = new TraceNode("Http", "GET /a", "", 2, 0, false, false, false, "", "main", 1,
                 List.of(child), java.util.Map.of("request.body", "b".repeat(chars)));
         return new CaptureRecord(id, "1", "t", "GET", "/a", 200, 2, false, clock.instant(), null, null, null,
-                List.of(root), List.of(new io.github.lakernote.meerkat.trace.internal.TraceLog(0, "INFO", "l", "main",
-                        "", "m")));
+                List.of(root));
     }
 
     @Test

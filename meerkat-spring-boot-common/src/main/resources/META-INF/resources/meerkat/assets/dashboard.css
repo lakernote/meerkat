@@ -364,21 +364,6 @@ body:has(dialog[open]) { overflow: hidden; }
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
 }
 
-/* Application log lines buffered during a trace */
-#trace-logs:empty { display: none; }
-#trace-logs .trace-logs { margin: 0 22px 18px; }
-.trace-logs h3 { margin: 12px 0 6px; font-size: 13px; }
-.trace-log-list { margin: 0; padding: 6px 0; max-height: 360px; overflow: auto; border: 1px solid var(--line); border-radius: 8px;
-  background: #fbfcfe; list-style: none; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-.trace-log { display: grid; grid-template-columns: 64px 46px minmax(80px, 140px) minmax(90px, 200px) 1fr; gap: 8px; padding: 1px 10px; }
-.trace-log:hover { background: #f1f4f9; }
-.trace-log > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.trace-log .trace-log-offset, .trace-log .trace-log-thread, .trace-log .trace-log-logger { color: var(--muted); }
-.trace-log .trace-log-message { white-space: pre-wrap; word-break: break-word; }
-.trace-log.warn .trace-log-level { color: var(--amber); font-weight: 600; }
-.trace-log.bad .trace-log-level, .trace-log.bad .trace-log-message { color: var(--red); }
-.trace-log.bad .trace-log-level { font-weight: 600; }
-
 /* Error groups */
 .error-groups { margin: 0 0 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
 .error-groups > summary { display: flex; align-items: baseline; gap: 10px; padding: 12px 16px; cursor: pointer; }

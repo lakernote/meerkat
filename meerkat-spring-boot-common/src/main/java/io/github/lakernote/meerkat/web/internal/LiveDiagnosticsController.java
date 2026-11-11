@@ -56,12 +56,6 @@ public class LiveDiagnosticsController {
         return diagnostics.activeRequests();
     }
 
-    @GetMapping(API + "/connections")
-    public LiveDiagnostics.OpenConnections connections() {
-        requireAccess();
-        return diagnostics.openConnections();
-    }
-
     /** Samples thread CPU for {@code sampleMs} (0–5000); answers 429 while another sample is in progress. */
     @GetMapping(API + "/threads")
     public LiveDiagnostics.ThreadReport threads(@RequestParam(defaultValue = "1000") long sampleMs)

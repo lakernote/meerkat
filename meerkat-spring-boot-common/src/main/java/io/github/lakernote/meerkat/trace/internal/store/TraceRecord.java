@@ -1,6 +1,5 @@
 package io.github.lakernote.meerkat.trace.internal.store;
 
-import io.github.lakernote.meerkat.trace.internal.TraceLog;
 import io.github.lakernote.meerkat.trace.internal.TraceNode;
 
 import java.time.Instant;
@@ -8,26 +7,15 @@ import java.util.List;
 
 /**
  * One completed entry trace (HTTP request, scheduled job or Kafka message) with its call tree. {@code tag} is the
- * entry span's detail, such as the HTTP route or the Kafka topic, partition and offset. {@code logs} are the
- * application log lines written while the trace ran.
+ * entry span's detail, such as the HTTP route or the Kafka topic, partition and offset.
  */
 public record TraceRecord(long id, String traceId, String name, String tag, int status,
                           long durationMs, boolean slow, boolean error, List<TraceNode> treeNodes,
                           Instant finishedAt,
                           long threadId, long cpuTimeMs, long allocatedBytes, String sourceType,
                           String errorType, String errorMessage, String threadName, String errorStackTrace,
-                          boolean highCpu, boolean highAllocation, List<TraceLog> logs) {
-    public TraceRecord(long id, String traceId, String name, String tag, int status, long durationMs, boolean slow,
-                       boolean error, List<TraceNode> treeNodes, Instant finishedAt, long threadId, long cpuTimeMs,
-                       long allocatedBytes, String sourceType, String errorType, String errorMessage,
-                       String threadName, String errorStackTrace, boolean highCpu, boolean highAllocation) {
-        this(id, traceId, name, tag, status, durationMs, slow, error, treeNodes, finishedAt, threadId, cpuTimeMs,
-                allocatedBytes, sourceType, errorType, errorMessage, threadName, errorStackTrace, highCpu,
-                highAllocation, List.of());
-    }
-
+                          boolean highCpu, boolean highAllocation) {
     public TraceRecord {
-        logs = logs == null ? List.of() : List.copyOf(logs);
         durationMs = Math.max(0, durationMs);
         sourceType = sourceType == null ? "" : sourceType;
         treeNodes = treeNodes == null ? List.of() : List.copyOf(treeNodes);
@@ -44,7 +32,7 @@ public record TraceRecord(long id, String traceId, String name, String tag, int 
     TraceRecord withIdentity(long id, Instant finishedAt) {
         return new TraceRecord(id, traceId, name, tag, status, durationMs, slow, error, treeNodes, finishedAt,
                 threadId, cpuTimeMs, allocatedBytes, sourceType, errorType, errorMessage, threadName,
-                errorStackTrace, highCpu, highAllocation, logs);
+                errorStackTrace, highCpu, highAllocation);
     }
 
     /**
@@ -55,10 +43,6 @@ public record TraceRecord(long id, String traceId, String name, String tag, int 
         long bytes = 256 + chars(traceId) + chars(name) + chars(tag) + chars(sourceType) + chars(errorType)
                 + chars(errorMessage) + chars(threadName) + chars(errorStackTrace);
         for (TraceNode node : treeNodes) bytes += estimatedBytes(node);
-        for (TraceLog log : logs) {
-            bytes += 96 + chars(log.level()) + chars(log.logger()) + chars(log.thread()) + chars(log.step())
-                    + chars(log.message());
-        }
         return bytes;
     }
 
@@ -94,7 +78,6 @@ public record TraceRecord(long id, String traceId, String name, String tag, int 
         private String errorStackTrace;
         private boolean highCpu;
         private boolean highAllocation;
-        private List<TraceLog> logs;
 
         private Builder() {
         }
@@ -199,15 +182,10 @@ public record TraceRecord(long id, String traceId, String name, String tag, int 
             return this;
         }
 
-        public Builder logs(List<TraceLog> logs) {
-            this.logs = logs;
-            return this;
-        }
-
         public TraceRecord build() {
             return new TraceRecord(id, traceId, name, tag, status, durationMs, slow, error,
                     treeNodes, finishedAt, threadId, cpuTimeMs, allocatedBytes, sourceType, errorType,
-                    errorMessage, threadName, errorStackTrace, highCpu, highAllocation, logs);
+                    errorMessage, threadName, errorStackTrace, highCpu, highAllocation);
         }
     }
 }

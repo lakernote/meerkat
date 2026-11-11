@@ -168,36 +168,6 @@ public class MeerkatProperties {
 
     }
 
-    /**
-     * Attaches the application's log lines to each kept trace (Logback or Log4j2). Running traces buffer their lines
-     * until they end; normal traces drop them.
-     */
-    public static class Logs {
-        private boolean enabled = true;
-        /** Lines kept per trace; later lines are counted as omitted. */
-        private int maxPerTrace = 100;
-        /** Longer messages are cut. */
-        private int maxMessageChars = 1_000;
-        /** Heap shared by all running traces for buffered lines; beyond it, new lines are omitted. */
-        private DataSize maxBufferedSize = DataSize.ofMegabytes(16);
-
-        public boolean isEnabled() { return enabled; }
-
-        public void setEnabled(boolean enabled) { this.enabled = enabled; }
-
-        public int getMaxPerTrace() { return maxPerTrace; }
-
-        public void setMaxPerTrace(int maxPerTrace) { this.maxPerTrace = maxPerTrace; }
-
-        public int getMaxMessageChars() { return maxMessageChars; }
-
-        public void setMaxMessageChars(int maxMessageChars) { this.maxMessageChars = maxMessageChars; }
-
-        public DataSize getMaxBufferedSize() { return maxBufferedSize; }
-
-        public void setMaxBufferedSize(DataSize maxBufferedSize) { this.maxBufferedSize = maxBufferedSize; }
-    }
-
     public static class Trace {
         private boolean enabled = true;
         private String headerName = "X-Trace-Id";
@@ -217,12 +187,6 @@ public class MeerkatProperties {
          * from disk. Without usable storage, traces beyond it are dropped.
          */
         private DataSize maxMemorySize = DataSize.ofMegabytes(32);
-        private final Logs logs = new Logs();
-
-        public Logs getLogs() {
-            return logs;
-        }
-
         public boolean isEnabled() {
             return enabled;
         }

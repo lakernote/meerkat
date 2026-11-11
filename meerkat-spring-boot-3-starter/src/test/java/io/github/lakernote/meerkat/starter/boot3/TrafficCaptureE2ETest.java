@@ -85,7 +85,16 @@ class TrafficCaptureE2ETest {
         String sessionId = JSON.readTree(started.body()).path("id").asText();
 
         // Not matching: wrong header value.
-        post("/orders/7", "{\"note\":\"bob\"}", Map.of("X-Debug-User", "bob"));
+        HttpResponse<String> ordinary = post("/orders/7", "{\"note\":\"bob\"}", Map.of("X-Debug-User", "bob"));
+        assertThat(ordinary.statusCode()).isEqualTo(500);
+        String ordinaryTraceId = ordinary.headers().firstValue("X-Trace-Id").orElseThrow();
+        TraceRecord ordinaryTrace = awaitTrace(ordinaryTraceId);
+        assertThat(ordinaryTrace).isNotNull();
+        assertThat(ordinaryTrace.treeNodes()).isNotEmpty();
+        assertThat(flattenNodes(ordinaryTrace.treeNodes()))
+                .anySatisfy(node -> assertThat(node.kind()).isEqualTo("Database"))
+                .allSatisfy(node -> assertThat(node.captures()).isEmpty());
+
         HttpResponse<String> captured = post("/orders/7", "{\"note\":\"secret-note\"}",
                 Map.of("X-Debug-User", "alice"));
         assertThat(captured.statusCode()).isEqualTo(500);
@@ -132,8 +141,37 @@ class TrafficCaptureE2ETest {
         // Captured data stays out of the normal trace store.
         TraceRecord trace = awaitTrace(traceId);
         assertThat(trace).isNotNull();
+        assertThat(trace.treeNodes()).isNotEmpty();
         assertThat(flattenNodes(trace.treeNodes())).allSatisfy(node -> assertThat(node.captures()).isEmpty());
         assertThat(get("/api/meerkat/traces/" + traceId).body()).doesNotContain("secret-note");
+    }
+
+    @Test
+    void capturesSuccessfulRequestsWithTheirRequestResponseAndCallTree() throws Exception {
+        HttpResponse<String> started = post("/api/meerkat/capture/sessions", """
+                {"method":"POST","pathPattern":"/capture-success","maxCount":1,"durationSeconds":60}
+                """, Map.of());
+        assertThat(started.statusCode()).as(started.body()).isEqualTo(200);
+        String sessionId = JSON.readTree(started.body()).path("id").asText();
+
+        HttpResponse<String> response = post("/capture-success", "hello", Map.of());
+        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(response.body()).isEqualTo("received:hello");
+        String traceId = response.headers().firstValue("X-Trace-Id").orElseThrow();
+
+        JsonNode records = awaitRecords(sessionId);
+        assertThat(records).hasSize(1);
+        JsonNode record = JSON.readTree(get("/api/meerkat/capture/records/"
+                + records.get(0).path("id").asText()).body());
+        assertThat(record.path("traceId").asText()).isEqualTo(traceId);
+        assertThat(record.path("status").asInt()).isEqualTo(200);
+        assertThat(record.path("nodes")).hasSize(1);
+        JsonNode root = record.path("nodes").get(0);
+        assertThat(root.path("kind").asText()).isEqualTo("Http");
+        assertThat(root.path("captures").path("request").asText()).contains("POST /capture-success");
+        assertThat(root.path("captures").path("request.body").asText()).isEqualTo("hello");
+        assertThat(root.path("captures").path("response").asText()).contains("200");
+        assertThat(root.path("captures").path("response.body").asText()).isEqualTo("received:hello");
     }
 
     private JsonNode awaitRecords(String sessionId) throws Exception {
@@ -245,6 +283,11 @@ class TrafficCaptureE2ETest {
         @PostMapping(value = "/ping", produces = "text/plain")
         String ping(@RequestHeader(value = "X-Trace-Id", defaultValue = "") String traceId) {
             return "pong:" + traceId;
+        }
+
+        @PostMapping(value = "/capture-success", produces = "text/plain")
+        String captureSuccess(@RequestBody String body) {
+            return "received:" + body;
         }
 
         @PostMapping(value = "/orders/{id}", produces = "text/plain")

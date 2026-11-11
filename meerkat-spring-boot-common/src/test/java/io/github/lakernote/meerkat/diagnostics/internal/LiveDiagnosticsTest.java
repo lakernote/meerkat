@@ -1,14 +1,11 @@
 package io.github.lakernote.meerkat.diagnostics.internal;
 
-import io.github.lakernote.meerkat.integration.jdbc.internal.JdbcConnectionsTestSupport;
 import io.github.lakernote.meerkat.trace.SpanKind;
-import io.github.lakernote.meerkat.trace.TraceIdContext;
 import io.github.lakernote.meerkat.trace.internal.RootTraceHandle;
 import io.github.lakernote.meerkat.trace.internal.ScopedSpan;
 import io.github.lakernote.meerkat.trace.internal.ThreadResourceSnapshot;
 import io.github.lakernote.meerkat.trace.internal.TraceContext;
 import org.junit.jupiter.api.Test;
-import org.slf4j.MDC;
 
 import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
@@ -237,59 +234,6 @@ class LiveDiagnosticsTest {
         }, name);
         thread.setDaemon(true);
         return thread;
-    }
-
-    @Test
-    void listsHeldConnectionsAndFlagsThoseWhoseTraceHasFinished() throws Exception {
-        Object running = new Object();
-        Object leaked = new Object();
-        Object background = new Object();
-        CountDownLatch opened = new CountDownLatch(1);
-        CountDownLatch release = new CountDownLatch(1);
-        Thread worker = new Thread(() -> {
-            TraceContext.startRoot("GET /orders", SpanKind.HTTP, "/orders");
-            TraceContext.currentRootTraceHandle().trackActive("db-running", "HTTP",
-                    ThreadResourceSnapshot.capture(Thread.currentThread().getId()));
-            MDC.put(TraceIdContext.MDC_KEY, "db-running");
-            JdbcConnectionsTestSupport.open(running, "ordersDb", "1");
-            opened.countDown();
-            awaitQuietly(release);
-            JdbcConnectionsTestSupport.close(running);
-            MDC.clear();
-            TraceContext.stopRoot(0, "test");
-        }, "db-holder");
-        worker.start();
-        try {
-            assertThat(opened.await(5, TimeUnit.SECONDS)).isTrue();
-            MDC.put(TraceIdContext.MDC_KEY, "db-finished");
-            JdbcConnectionsTestSupport.open(leaked, "ordersDb", "2");
-            MDC.clear();
-            JdbcConnectionsTestSupport.open(background, "reportDb", "3");
-
-            LiveDiagnostics.OpenConnections report = diagnostics.openConnections();
-
-            assertThat(report.total()).isEqualTo(3);
-            assertThat(report.suspectedLeaks()).isEqualTo(1);
-            assertThat(report.byDataSource()).containsEntry("ordersDb", 2).containsEntry("reportDb", 1);
-            assertThat(report.items()).filteredOn(item -> item.connectionId().equals("1")).singleElement()
-                    .satisfies(item -> {
-                        assertThat(item.suspectedLeak()).isFalse();
-                        assertThat(item.threadName()).isEqualTo("db-holder");
-                        assertThat(item.stack()).anyMatch(line -> line.contains("LiveDiagnosticsTest.awaitQuietly"));
-                    });
-            assertThat(report.items()).filteredOn(item -> item.connectionId().equals("2")).singleElement()
-                    .satisfies(item -> assertThat(item.suspectedLeak()).isTrue());
-            assertThat(report.items()).filteredOn(item -> item.connectionId().equals("3")).singleElement()
-                    .satisfies(item -> {
-                        assertThat(item.suspectedLeak()).isFalse();
-                        assertThat(item.traceId()).isEmpty();
-                        assertThat(item.threadState()).isEqualTo("RUNNABLE");
-                    });
-        } finally {
-            release.countDown();
-            worker.join(5000);
-            JdbcConnectionsTestSupport.clear();
-        }
     }
 
     private static void awaitQuietly(CountDownLatch latch) {

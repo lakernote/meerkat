@@ -397,29 +397,7 @@
     '下载失败（HTTP {status}）': 'Download failed (HTTP {status})',
     '另一个线程采样正在进行，请稍后再试': 'Another thread sample is in progress. Try again shortly',
     '重新采样': 'Resample',
-    // Database connections on the live page
     '数据库连接': 'DB connections',
-    '已占用': 'Held for',
-    '≥ 10 秒': '≥ 10 s',
-    '≥ 1 分钟': '≥ 1 min',
-    '只看疑似泄漏': 'Suspected leaks only',
-    '连接筛选': 'Connection filters',
-    '数据源': 'Data source',
-    '持有线程': 'Holder thread',
-    '占用中': 'Held',
-    '疑似泄漏': 'Suspected leak',
-    '请求进行中': 'Request running',
-    '非请求线程': 'Outside a request',
-    '取出时间': 'Taken at',
-    '连接编号': 'Connection ID',
-    '查看取连接的 Trace': 'Open the trace that took it',
-    '{n} 个连接占用中': '{n} connections held',
-    '，{n} 个超出跟踪上限未列出': ', {n} over the tracking cap not listed',
-    '当前没有被占用的数据库连接': 'No database connections are held right now',
-    '已从连接池取出且尚未关闭的数据库连接，按占用时间排序；选择一行查看持有线程当前堆栈':
-      'Database connections taken from the pool and not yet closed, longest held first; select a row for the holder thread\'s current stack',
-    '疑似泄漏：取连接的请求已经结束，但连接仍未关闭（未归还连接池）。持有线程的堆栈是当前时刻的堆栈，线程可能已在处理别的请求。':
-      'Suspected leak: the request that took the connection has finished but the connection is still open (not returned to the pool). The holder thread\'s stack is its stack right now; the thread may already be serving another request.',
     // Error groups
     '异常聚合': 'Error groups',
     '把失败的 Trace 按异常类型和消息归并，先看哪类问题最多': 'Failed traces grouped by error type and message, largest first',
@@ -435,9 +413,6 @@
     '首次 {first}\n最近 {last}': 'First {first}\nLast {last}',
     '最近一条': 'Latest',
     '筛选': 'Filter',
-    // Trace logs
-    '日志（{count} 行）': 'Logs ({count} lines)',
-    '所在步骤：{step}': 'Step: {step}',
     // Traffic capture
     '流量抓取': 'Capture',
     'Meerkat · 流量抓取': 'Meerkat · Traffic capture',

@@ -26,16 +26,17 @@ Meerkat answers two everyday questions from inside your application:
 
 No separate observability platform is needed to get started, and it works alongside the one you already have.
 
+Designed to stay in the application for everyday problem detection and diagnosis: metrics and diagnostic traces run continuously; bodies, SQL parameters and result data are collected only during a traffic capture explicitly started by an authorized user.
+
 ![Trace detail timeline](docs/images/en-trace-detail-timeline.png)
 
 ## Features
 
-- **Trace diagnostics** – call trees for HTTP, scheduled-job and Kafka-consumer entries that are slow, fail, or use too much CPU or memory. Repeated SQL in a loop is merged and flagged as N+1.
+- **Trace diagnostics** – call trees for HTTP, scheduled-job and Kafka-consumer entries that are slow, fail, or exceed CPU-time or allocation thresholds. Repeated SQL in a loop is merged and flagged as N+1.
 - **Operation ranking** – count, error rate, average/P95/max and total time for every endpoint, SQL statement, remote call, Redis command, job and Kafka topic, plus CPU and allocation per request. Last hour to 30 days; survives restarts.
 - **Metric trends** – JVM memory and GC, CPU, threads, Hikari pools, executors and Tomcat, reusing the Micrometer meters Spring Boot already binds.
-- **Live diagnostics** – in-flight requests and the step they are stuck in, threads ranked by CPU, deadlock detection, merged stacks, thread dumps, and who is holding DB connections (with suspected leaks). Read on demand, never sampled in the background.
+- **Live diagnostics** – in-flight requests and the step they are stuck in, threads ranked by CPU, deadlock detection, merged stacks, and thread dumps. Read on demand, never sampled in the background.
 - **Error groups** – failed traces grouped by error type and message with counts, trend and a "new" mark, so a burst of identical failures reads as one problem.
-- **Logs in traces** – slow and failed traces carry the log lines the application wrote during that request, with the step they were written in; see [Application logs in traces](docs/guide.md#application-logs-in-traces).
 - **Traffic capture** – on demand, record everything a matching request did: request and response bodies, SQL with parameters and results, Redis commands and replies, and outbound HTTP calls, tied together by trace ID. Available to whoever `canCapture()` allows (nobody by default); see [Traffic capture](docs/guide.md#traffic-capture).
 - **Toolbox** – on-demand diagnostics without a Java agent: temporary log levels that revert by themselves, a CPU sampling flame graph, heap histograms with growth since the last one, heap dumps, where a configuration property comes from, and which jar a class is loaded from, including duplicate classes. See [Toolbox](docs/guide.md#toolbox).
 - **Self-contained** – data lives in local files with retention and size limits. Your Prometheus or other Micrometer exports are untouched.
@@ -67,14 +68,22 @@ Start the application and open `http://localhost:8080/meerkat/` (the address is 
 
 ## What is traced automatically
 
-| Component | Covered without code |
-| --- | --- |
-| Entries | Spring MVC requests, `@Scheduled` jobs, `@KafkaListener` |
-| Database | JDBC / any `DataSource` bean (MyBatis, JPA, JdbcTemplate), transactions |
-| Redis | Lettuce; Spring Data Redis on Redisson's connection factory |
-| HTTP clients | `RestTemplate`, `RestClient`, `@FeignClient`, `OkHttpClient` beans (trace ID propagated) |
-| Messaging | `KafkaTemplate` send and listener receive, linked by trace ID |
-| Async | `@Async`, `ThreadPoolTaskExecutor` and `SimpleAsyncTaskExecutor` beans |
+| Mode | When it runs | How data is collected and kept |
+| --- | --- | --- |
+| Trace | Continuously by default | Build bounded call trees in memory; keep entries that are slow, fail, or exceed entry-thread CPU-time or allocation thresholds |
+| Metrics | Continuously by default | Aggregate counts, errors and timings from the same collection points as traces; reuse Micrometer resource meters and periodically save trends |
+| Traffic capture | Started by an authorized user | Match HTTP requests by rules; additionally record bodies, SQL parameters and results, Redis arguments and replies, and outbound HTTP data, subject to capture limits |
+
+These modes use the following integrations:
+
+| Component | Covered without code | How it is collected |
+| --- | --- | --- |
+| Entries | Spring MVC requests, `@Scheduled` jobs, `@KafkaListener` | Spring Observations create entry traces and provide timing, status and errors |
+| Database | JDBC via compatible `DataSource` beans (MyBatis, JPA, JdbcTemplate), transactions | SQL execution listeners on data-source proxies; Spring transaction listeners |
+| Redis | Lettuce; Spring Data Redis on Redisson's connection factory | Lettuce Observations; proxies around Redisson connection-factory commands |
+| HTTP clients | `RestTemplate`, `RestClient`, `@FeignClient`, `OkHttpClient` beans | Client Observations or interceptors record calls and propagate the trace ID |
+| Messaging | `KafkaTemplate` send and listener receive | Spring Kafka Observations and message headers link producer and consumer traces |
+| Async | `@Async`, `ThreadPoolTaskExecutor` and `SimpleAsyncTaskExecutor` beans | A `TaskDecorator` propagates trace context and records task steps, timings and errors |
 
 Custom steps can be added with `@TraceSpan` or `TraceBlock`. Exact limits are in the [guide](docs/guide.md#what-is-collected-automatically).
 
@@ -88,9 +97,9 @@ Time added on the business thread (JMH, Apple M4 Pro, JDK 21):
 | --- | --- |
 | One entry (HTTP request, job, Kafka message) | ~1.7 µs |
 | Each dependency call (Redis, HTTP, Kafka send, ...) | ~0.3 µs |
-| Each SQL statement | ~0.1–0.2 µs |
+| SQL listener processing per statement | ~0.1–0.2 µs |
 
-A request with 20 dependency calls adds about 7 µs: under 1% for a 1 ms request, under 0.1% for a 10 ms request. Disk writes happen on a background thread. See [Overhead](docs/guide.md#overhead) for details.
+A request with 20 dependency calls adds about 7 µs: under 1% for a 1 ms request, under 0.1% for a 10 ms request. The SQL numbers cover listener processing, not the full JDBC proxy chain. Disk writes happen on a background thread. See [Overhead](docs/guide.md#overhead) for details.
 
 ## Screenshots
 

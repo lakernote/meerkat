@@ -63,10 +63,6 @@ Common settings are listed below; anything not listed keeps the starter default.
 | `meerkat.trace.retention` | `7d` | Days to keep diagnostic traces, whole days from `1d` to `365d` |
 | `meerkat.trace.max-storage-size` | `128MB` | Disk limit for diagnostic traces; the oldest segment files are deleted beyond it |
 | `meerkat.trace.max-memory-size` | `32MB` | Heap limit for caching full call trees of the newest traces (oldest evicted by estimated size). Older records are read from disk when opened, or dropped when storage is unavailable |
-| `meerkat.trace.logs.enabled` | `true` | Attach the application's own log lines to slow and failed traces, see [Application logs in traces](#application-logs-in-traces) |
-| `meerkat.trace.logs.max-per-trace` | `100` | Log lines kept per trace; extra lines are counted and reported as omitted |
-| `meerkat.trace.logs.max-message-chars` | `1000` | Characters kept per log message (minimum 80) |
-| `meerkat.trace.logs.max-buffered-size` | `16MB` | Heap shared by the log lines of all running traces; lines beyond it are omitted until traces finish |
 | `meerkat.metrics.enabled` | `true` | Master switch for runtime metrics (operation statistics and resource metrics) |
 | `meerkat.metrics.max-operations` | `1000` | Maximum operations tracked across all categories. Beyond it, new operations go to an "other" row per category; operations without calls for 2 hours release their slot |
 | `meerkat.metrics.retention` | `30d` | Metric history retention, whole days from `1d` to `365d` |
@@ -174,9 +170,8 @@ The `/meerkat/live/` page answers "what is happening right now", useful when an 
 
 - **In-flight requests:** HTTP, scheduled-job and Kafka-consumer entries currently running, ordered by elapsed time, with entry-thread CPU time so far, the innermost step currently executing (for example a SQL statement or remote call and how long it has been running) and the thread state. Expand a row for the thread's current stack and the lock it is waiting on. Refreshes every 5 seconds by default. Once a request switches to async processing and its entry thread has returned, only elapsed time and the current step are shown, without a stack. Shows up to 200; the dashboard's own requests are excluded.
 - **Threads:** all platform threads are sampled for 1 second and sorted by CPU usage (100% means one full core), with state, cumulative CPU, the lock waited on and its owner; expand for the stack. Deadlocked threads are listed at the top when detected. "Merge identical stacks" collapses threads with the same state and stack into one row, making it easy to spot many threads stuck in the same place. A jstack-format thread dump can be downloaded. Virtual threads are not listed.
-- **DB connections:** JDBC connections taken from a traced data source and not yet closed (returned to the pool), longest held first, with the data source, the thread that took the connection, its trace ID and that thread's state and stack *right now*. A connection whose trace has already finished is flagged as a **suspected leak**: the request that took it returned without closing it. Use this when the pool is exhausted ("Connection is not available, request timed out") to see who is holding it. Summary cards show the total, suspected leaks and the count per data source. Covers data sources wrapped by Meerkat's JDBC tracing; a `ProxyDataSource` bean you build yourself is not tracked.
 
-Each entry adds and removes itself from a concurrent collection once at start and once at end, which does not affect request latency. Connection tracking is the same: one map insert per `getConnection` and one remove per `close`, no stack capture, at most 10,000 open connections tracked (more are counted but not listed); stacks are read only when the page asks. Only one thread sample runs at a time; a request while sampling returns 429.
+Each entry adds and removes itself from a concurrent collection once at start and once at end, which does not affect request latency; stacks are read only when the page asks. Only one thread sample runs at a time; a request while sampling returns 429.
 
 Query API (all `GET`, prefix `/api/meerkat/live`): `/requests`, `/connections`, `/threads?sampleMs=0..5000` (default 1000), `/threads/dump` (`text/plain` attachment; only one dump at a time and at least 5 seconds apart, otherwise 429).
 
@@ -315,14 +310,6 @@ Inbound trace ID priority:
 
 Outbound calls only write `X-Trace-Id`. Standard headers such as `traceparent` and B3 are written by Micrometer Tracing; Meerkat does not write them again, so it never changes the sampling decision of downstream services. SkyWalking's `sw8` header is not recognized yet.
 
-## Application logs in traces
-
-The trace detail and traffic-capture records show the log lines the application itself wrote while the request ran — level, logger, thread, the step (span) that was current, and the offset from the start of the request — so the log of a slow or failed request no longer has to be searched for separately. Exceptions logged with a line are appended as `| ExceptionClass: message`; stack traces stay in your log files.
-
-Meerkat adds an appender to the root logger of Logback or Log4j2 (whichever the application uses) and re-adds it when Spring Boot or the application reconfigures logging. Only lines that pass your logger levels are seen. Lines from loggers with `additivity=false` never reach the root logger and are not collected. Lines written on child threads are included when the trace context is propagated to them (see [Kafka and executors](#kafka-and-executors)).
-
-Whether a request will turn out slow or failed is known only when it ends, so lines are buffered for every running trace and dropped for fast, successful ones. The buffer is bounded by `max-per-trace`, `max-message-chars` and the shared `max-buffered-size`, and released when the trace ends. Outside a trace the appender costs one thread-local read. Turn it off with `meerkat.trace.logs.enabled=false`.
-
 ## Kafka and executors
 
 The starter enables observation on `KafkaTemplate` and listener factories in the Spring context, so `spring.kafka.template/listener.observation-enabled` is not needed; an explicit `false` is respected. The default listener factory gets the trace ID interceptor automatically. If the application uses its own `RecordInterceptor`, compose `TraceIdRecordInterceptor` with it in your configuration. Batch listeners, custom consumers and Kafka Streams are not covered automatically.
@@ -353,9 +340,6 @@ These numbers come from the JMH benchmarks in the `benchmarks` module (Apple M4 
 | `TraceBlock` outside a trace | — | 18 ns | Runs the business code directly without recording |
 | 10 `TraceBlock`s inside one entry trace | — | 1.0 µs | About 0.1 µs per span |
 | `TraceContextTaskDecorator` decorating and running one task | — | 0.27 µs (no trace) / 0.37 µs (in a trace) | Generates a new trace ID for the task when there is no parent trace |
-| One log line with trace logs on, outside a trace | — | 1 ns | No allocation |
-| One log line with trace logs on, inside a trace | — | 20 ns | Allocates about 50–75 B per line; the trace reserves its log budget in 8 KB blocks |
-| Borrowing a pooled JDBC connection, with connection tracking | — | +0.12 µs | Records the holder for the live connections view |
 
 For requests taking 1 ms or more this is under 1%; for 10 ms requests, under 0.1%. Slow, failed and resource-heavy entries are also added to an in-memory list and archived asynchronously on a background thread; archive I/O never runs on business threads.
 

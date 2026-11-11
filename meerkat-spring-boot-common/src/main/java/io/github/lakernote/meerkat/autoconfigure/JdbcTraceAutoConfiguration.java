@@ -1,6 +1,5 @@
 package io.github.lakernote.meerkat.autoconfigure;
 
-import io.github.lakernote.meerkat.integration.jdbc.internal.JdbcConnectionListener;
 import io.github.lakernote.meerkat.integration.jdbc.internal.JdbcTraceQueryExecutionListener;
 import io.github.lakernote.meerkat.integration.jdbc.internal.SpringAwareJdbcProxyFactory;
 import io.github.lakernote.meerkat.metrics.internal.OperationStats;
@@ -63,7 +62,6 @@ public class JdbcTraceAutoConfiguration {
             String dataSourceName = StringUtils.hasText(beanName) ? beanName : "dataSource";
             ProxyDataSourceBuilder builder = ProxyDataSourceBuilder.create(dataSourceName, dataSource)
                     .listener(listener)
-                    .methodListener(JdbcConnectionListener.INSTANCE)
                     .jdbcProxyFactory(new SpringAwareJdbcProxyFactory());
             // 流量抓取需要记录查询结果；未抓取的结果集由工厂原样返回。
             return builder.proxyResultSet().buildProxy();
