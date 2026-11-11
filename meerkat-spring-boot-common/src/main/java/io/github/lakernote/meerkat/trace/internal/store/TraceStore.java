@@ -29,9 +29,11 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.TreeMap;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -70,6 +72,10 @@ public final class TraceStore implements AutoCloseable {
     private final Clock clock;
     private final ZoneId zone;
     private long searchScanBytes = SEARCH_SCAN_BYTES;
+    private volatile int maxPerOperationPerMinute;
+    /** Traces kept this minute per operation and outcome; replaced as a whole when the minute changes. */
+    private final AtomicReference<Window> window = new AtomicReference<>(new Window(Long.MIN_VALUE));
+    private final AtomicLong throttled = new AtomicLong();
 
     /** Newest first. Values are mutated only while holding {@link #stateLock}. */
     private final ConcurrentSkipListMap<Key, Entry> index = new ConcurrentSkipListMap<>();
@@ -156,10 +162,24 @@ public final class TraceStore implements AutoCloseable {
         thread.start();
     }
 
+    /**
+     * Keeps at most {@code perMinute} traces per minute for each operation and outcome (error type, slow or
+     * resource), so one failing endpoint cannot push every other trace out of the store. Zero or below disables
+     * the limit.
+     */
+    public TraceStore limitPerOperation(int perMinute) {
+        this.maxPerOperationPerMinute = perMinute;
+        return this;
+    }
+
     /** Stores a completed entry trace, assigning its record ID and completion time. */
     public TraceRecord add(TraceRecord trace) {
         if (trace == null || !isEntrySource(trace.sourceType()) || !isDiagnostic(trace)) return null;
         Instant finishedAt = clock.instant();
+        if (!admit(trace, finishedAt.toEpochMilli())) {
+            throttled.incrementAndGet();
+            return null;
+        }
         TraceRecord stored = trace.withIdentity(nextId.incrementAndGet(), finishedAt);
         Entry entry = new Entry(new Key(finishedAt.toEpochMilli(), stored.id()), TraceSummary.of(stored), stored);
         long writeGeneration;
@@ -296,7 +316,7 @@ public final class TraceStore implements AutoCloseable {
             for (Segment segment : segments.values()) bytes += segment.size;
         }
         return new StorageStatus(persistent, persistent ? bytes : 0, maxStorageBytes, retentionDays,
-                indexSize.get(), restoring);
+                indexSize.get(), restoring, throttled.get());
     }
 
     /** Deletes every stored trace; writes queued before the call are discarded. */
@@ -340,6 +360,36 @@ public final class TraceStore implements AutoCloseable {
     private boolean indexFull() {
         synchronized (stateLock) {
             return indexSize.get() >= MAX_INDEXED_TRACES || indexBytes >= maxIndexBytes;
+        }
+    }
+
+    private boolean admit(TraceRecord trace, long nowMillis) {
+        int limit = maxPerOperationPerMinute;
+        if (limit <= 0) return true;
+        long minute = Math.floorDiv(nowMillis, 60_000L);
+        Window current = window.get();
+        if (current.minute != minute) {
+            Window next = new Window(minute);
+            current = window.compareAndSet(current, next) ? next : window.get();
+        }
+        String outcome = trace.error() ? trace.errorType() : trace.slow() ? "SLOW" : "RESOURCE";
+        String key = trace.sourceType() + '\n' + trace.name() + '\n' + outcome;
+        AtomicInteger kept = current.kept.get(key);
+        if (kept == null) {
+            // Past the key cap, new keys share one budget so a storm of distinct names stays bounded too.
+            if (current.kept.size() >= Window.MAX_KEYS) key = "";
+            kept = current.kept.computeIfAbsent(key, ignored -> new AtomicInteger());
+        }
+        return kept.incrementAndGet() <= limit;
+    }
+
+    private static final class Window {
+        static final int MAX_KEYS = 4_096;
+        final long minute;
+        final ConcurrentHashMap<String, AtomicInteger> kept = new ConcurrentHashMap<>();
+
+        Window(long minute) {
+            this.minute = minute;
         }
     }
 
@@ -850,5 +900,5 @@ public final class TraceStore implements AutoCloseable {
     public record TracePage(List<TraceSummary> items, String nextCursor, boolean scanLimited, int total) { }
 
     public record StorageStatus(boolean persistent, long storageBytes, long maxStorageBytes, int retentionDays,
-                                int traceCount, boolean indexing) { }
+                                int traceCount, boolean indexing, long throttledCount) { }
 }

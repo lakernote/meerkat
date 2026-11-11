@@ -42,7 +42,7 @@ public class TrafficCaptureAutoConfiguration {
 
     @Bean
     CaptureSessions meerkatCaptureSessions(MeerkatProperties properties) {
-        return new CaptureSessions(properties.getCapture().getMaxDuration());
+        return new CaptureSessions(properties.getCapture().getMaxDuration(), properties.getCapture().getMaxRecords());
     }
 
     @Bean

@@ -63,6 +63,7 @@ JDBC 采集会使用保留原数据源具体类型的代理，因此按 `HikariD
 | `meerkat.trace.retention` | `7d` | 诊断 Trace 保留天数，整天，范围 `1d`～`365d` |
 | `meerkat.trace.max-storage-size` | `128MB` | 诊断 Trace 磁盘占用上限，超出时删除最旧的分段文件 |
 | `meerkat.trace.max-memory-size` | `32MB` | 内存中缓存最新 Trace 完整调用树的堆内存上限（按估算大小淘汰最旧的）；更早的记录在打开详情时从磁盘读取，存储不可用时直接丢弃 |
+| `meerkat.trace.max-per-operation-per-minute` | `60` | 每个入口按结果（错误类型、慢、资源超限）每分钟最多保存的 Trace 数；超出的只计数（见 `/api/meerkat/traces/storage` 的 `throttledCount`），避免单个接口的错误风暴挤掉其他 Trace。`0` 表示不限 |
 | `meerkat.metrics.enabled` | `true` | 运行指标（调用统计与资源指标）总开关 |
 | `meerkat.metrics.max-operations` | `500` | 所有类别合计最多统计的操作数，超出后新操作按类别并入“其他”行；1 小时没有调用的操作会释放名额 |
 | `meerkat.metrics.retention` | `30d` | 指标历史保留时长，须为整天数，范围 `1d` 至 `365d` |
@@ -188,7 +189,7 @@ meerkat:
     max-result-rows: 20    # 每条查询保留的结果行数
     max-value-chars: 16384 # 每个记录值
     max-trace-chars: 1000000 # 每个被抓取的请求
-    max-records: 100       # 内存中保留的抓取记录数
+    max-records: 100       # 内存中保留的抓取记录数，也是单次抓取次数的上限
     max-stored-size: 32MB  # 所有抓取记录占用的堆上限，超出先丢最旧的
     retention: 2h
     max-duration: 1h       # 单次抓取最长时间

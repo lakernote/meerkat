@@ -76,7 +76,8 @@ public class ObservabilityAutoConfiguration {
             throw new IllegalArgumentException("meerkat.trace.max-memory-size must be positive");
         }
         return new TraceStore(storage.traceDirectory(), RuntimeMetricsAutoConfiguration.retentionDays("trace", trace.getRetention()),
-                trace.getMaxStorageSize().toBytes(), trace.getMaxMemorySize().toBytes());
+                trace.getMaxStorageSize().toBytes(), trace.getMaxMemorySize().toBytes())
+                .limitPerOperation(trace.getMaxPerOperationPerMinute());
     }
 
     /**

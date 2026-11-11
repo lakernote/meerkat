@@ -63,6 +63,7 @@ Common settings are listed below; anything not listed keeps the starter default.
 | `meerkat.trace.retention` | `7d` | Days to keep diagnostic traces, whole days from `1d` to `365d` |
 | `meerkat.trace.max-storage-size` | `128MB` | Disk limit for diagnostic traces; the oldest segment files are deleted beyond it |
 | `meerkat.trace.max-memory-size` | `32MB` | Heap limit for caching full call trees of the newest traces (oldest evicted by estimated size). Older records are read from disk when opened, or dropped when storage is unavailable |
+| `meerkat.trace.max-per-operation-per-minute` | `60` | Traces stored per minute for each entry and outcome (error type, slow or resource); later ones that minute are only counted (`throttledCount` in `/api/meerkat/traces/storage`), so one failing endpoint cannot push out every other trace. `0` keeps all |
 | `meerkat.metrics.enabled` | `true` | Master switch for runtime metrics (operation statistics and resource metrics) |
 | `meerkat.metrics.max-operations` | `500` | Maximum operations tracked across all categories. Beyond it, new operations go to an "other" row per category; operations without calls for 1 hour release their slot |
 | `meerkat.metrics.retention` | `30d` | Metric history retention, whole days from `1d` to `365d` |
@@ -188,7 +189,7 @@ meerkat:
     max-result-rows: 20    # SQL result rows kept per query
     max-value-chars: 16384 # per recorded value
     max-trace-chars: 1000000 # per captured request
-    max-records: 100       # captured requests kept in memory
+    max-records: 100       # captured requests kept in memory; also the most one capture may request
     max-stored-size: 32MB  # heap for all kept records; oldest dropped first
     retention: 2h
     max-duration: 1h       # longest a capture may run

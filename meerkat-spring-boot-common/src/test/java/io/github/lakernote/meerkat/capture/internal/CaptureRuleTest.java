@@ -24,8 +24,8 @@ class CaptureRuleTest {
     @Test
     void acceptsValidRule() {
         assertThatCode(() -> new CaptureRule("GET", "/api/**", "X-User", "bob", CaptureRule.MAX_COUNT, 60)
-                .validate(60)).doesNotThrowAnyException();
-        assertThatCode(() -> new CaptureRule("", "/", "", "", 1, 1).validate(60)).doesNotThrowAnyException();
+                .validate(60, CaptureRule.MAX_COUNT)).doesNotThrowAnyException();
+        assertThatCode(() -> new CaptureRule("", "/", "", "", 1, 1).validate(60, CaptureRule.MAX_COUNT)).doesNotThrowAnyException();
     }
 
     @Test
@@ -45,7 +45,7 @@ class CaptureRuleTest {
     }
 
     private static void assertInvalid(CaptureRule rule, String message) {
-        assertThatThrownBy(() -> rule.validate(60)).isInstanceOf(IllegalArgumentException.class)
+        assertThatThrownBy(() -> rule.validate(60, CaptureRule.MAX_COUNT)).isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining(message);
     }
 }

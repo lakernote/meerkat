@@ -44,6 +44,26 @@ class TraceStoreTest {
     }
 
     @Test
+    void limitsTracesPerOperationAndOutcomeEachMinute() {
+        TraceStore store = store(100, 128 * MB).limitPerOperation(2);
+
+        for (int i = 0; i < 5; i++) {
+            store.add(trace("err" + i).name("GET /pay").slow(false).error(true).errorType("Timeout").build());
+        }
+        store.add(trace("other-error").name("GET /pay").slow(false).error(true).errorType("NPE").build());
+        store.add(trace("slow").name("GET /pay").build());
+        store.add(trace("other-api").name("GET /cart").slow(false).error(true).errorType("Timeout").build());
+
+        assertThat(store.recent(100)).extracting(TraceRecord::traceId)
+                .containsExactly("other-api", "slow", "other-error", "err1", "err0");
+        assertThat(store.storageStatus().throttledCount()).isEqualTo(3);
+
+        clock.advance(Duration.ofMinutes(1));
+        assertThat(store.add(trace("err-next").name("GET /pay").slow(false).error(true).errorType("Timeout").build()))
+                .isNotNull();
+    }
+
+    @Test
     void memoryOnlyStoreForgetsTracesBeyondTheHotWindow() {
         TraceStore store = TraceStore.inMemory(2 * trace("a").build().estimatedBytes());
         store.add(trace("a").build());

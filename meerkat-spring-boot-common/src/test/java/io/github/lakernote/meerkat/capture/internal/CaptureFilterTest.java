@@ -29,7 +29,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 class CaptureFilterTest {
-    private final CaptureSessions sessions = new CaptureSessions(Duration.ofMinutes(10));
+    private final CaptureSessions sessions = new CaptureSessions(Duration.ofMinutes(10), 100);
     private final CaptureStore store = new CaptureStore(10, Duration.ofHours(1));
     private final MeerkatProperties.Capture limits = new MeerkatProperties.Capture();
     private final CaptureFilter filter = new CaptureFilter(sessions, store, limits);

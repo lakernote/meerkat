@@ -59,6 +59,7 @@ public class TrafficCaptureController {
         boolean enabled = sessions != null && store != null;
         boolean canCapture = accessPolicy.canCapture();
         return new Status(enabled, canCapture, enabled ? sessions.maxDurationSeconds() : 0,
+                enabled ? sessions.maxCount() : 0,
                 enabled && canCapture ? sessions.list() : List.of(), enabled && canCapture ? store.size() : 0);
     }
 
@@ -130,7 +131,7 @@ public class TrafficCaptureController {
         return (user == null || user.isBlank() ? "anonymous" : user) + "@" + address;
     }
 
-    public record Status(boolean enabled, boolean canCapture, long maxDurationSeconds,
+    public record Status(boolean enabled, boolean canCapture, long maxDurationSeconds, int maxCount,
                          List<CaptureSessions.SessionView> sessions, int records) { }
 
     public record Cleared(int cleared) { }

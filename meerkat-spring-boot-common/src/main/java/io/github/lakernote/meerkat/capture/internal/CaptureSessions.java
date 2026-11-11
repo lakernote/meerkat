@@ -26,18 +26,25 @@ public final class CaptureSessions {
     private final CopyOnWriteArrayList<Session> sessions = new CopyOnWriteArrayList<>();
     private final AtomicLong nextId = new AtomicLong();
     private final Duration maxDuration;
+    private final int maxCount;
     private final Clock clock;
     /** Read on every request; true only while at least one session may still match. */
     private volatile boolean anyActive;
 
-    public CaptureSessions(Duration maxDuration) {
-        this(maxDuration, Clock.systemUTC());
+    /** {@code maxRecords} caps each session's count, so one session never captures more than the store keeps. */
+    public CaptureSessions(Duration maxDuration, int maxRecords) {
+        this(maxDuration, maxRecords, Clock.systemUTC());
     }
 
-    CaptureSessions(Duration maxDuration, Clock clock) {
+    CaptureSessions(Duration maxDuration, int maxRecords, Clock clock) {
         this.maxDuration = maxDuration == null || maxDuration.isNegative() || maxDuration.isZero()
                 ? Duration.ofHours(1) : maxDuration;
+        this.maxCount = Math.max(1, Math.min(CaptureRule.MAX_COUNT, maxRecords));
         this.clock = clock;
+    }
+
+    public int maxCount() {
+        return maxCount;
     }
 
     public long maxDurationSeconds() {
@@ -45,7 +52,7 @@ public final class CaptureSessions {
     }
 
     public synchronized SessionView start(CaptureRule rule, String operator) {
-        rule.validate(maxDurationSeconds());
+        rule.validate(maxDurationSeconds(), maxCount);
         expire();
         long active = sessions.stream().filter(Session::active).count();
         if (active >= MAX_ACTIVE_SESSIONS) {

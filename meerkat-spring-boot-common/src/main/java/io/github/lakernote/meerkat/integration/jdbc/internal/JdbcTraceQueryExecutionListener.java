@@ -26,11 +26,12 @@ public final class JdbcTraceQueryExecutionListener implements QueryExecutionList
     private volatile Boolean showDataSourceName;
     /**
      * Normalizing SQL costs microseconds while prepared statements repeat the same text, so the result is cached
-     * per raw SQL. SQL with inlined literals can be unbounded; the cache is cleared when full instead of evicting.
+     * per raw SQL. SQL with inlined literals can be unbounded, so when the cache is full the entries not used since
+     * the previous sweep are dropped; hot prepared statements stay cached.
      */
     static final int MAX_CACHED_SQL = 1_024;
     static final int MAX_CACHED_SQL_LENGTH = 2_048;
-    private final ConcurrentHashMap<String, SqlNames> sqlNames = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, CachedNames> sqlNames = new ConcurrentHashMap<>();
 
     public JdbcTraceQueryExecutionListener() {
         this(null, () -> true);
@@ -81,17 +82,42 @@ public final class JdbcTraceQueryExecutionListener implements QueryExecutionList
         String raw = single == null ? null : single.getQuery();
         boolean cacheable = raw != null && raw.length() <= MAX_CACHED_SQL_LENGTH;
         if (cacheable) {
-            SqlNames cached = sqlNames.get(raw);
-            if (cached != null) return cached;
+            CachedNames cached = sqlNames.get(raw);
+            if (cached != null) {
+                if (!cached.used) cached.used = true;
+                return cached.names;
+            }
         }
         String sql = JdbcTraceSql.describe(queries);
         SqlNames names = new SqlNames(sql, "SQL " + JdbcTraceSql.commandOf(sql),
                 operationStats == null ? null : JdbcTraceSql.statsName(queries, sql));
         if (cacheable) {
-            if (sqlNames.size() >= MAX_CACHED_SQL) sqlNames.clear();
-            sqlNames.put(raw, names);
+            if (sqlNames.size() >= MAX_CACHED_SQL) sweep();
+            if (sqlNames.size() < MAX_CACHED_SQL) sqlNames.putIfAbsent(raw, new CachedNames(names));
         }
         return names;
+    }
+
+    private synchronized void sweep() {
+        if (sqlNames.size() < MAX_CACHED_SQL) return;
+        sqlNames.values().removeIf(cached -> {
+            if (!cached.used) return true;
+            cached.used = false;
+            return false;
+        });
+    }
+
+    private static final class CachedNames {
+        final SqlNames names;
+        volatile boolean used;
+
+        CachedNames(SqlNames names) {
+            this.names = names;
+        }
+    }
+
+    boolean cached(String raw) {
+        return sqlNames.containsKey(raw);
     }
 
     int cachedSqlCount() {

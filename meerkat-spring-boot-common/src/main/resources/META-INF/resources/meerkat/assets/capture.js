@@ -46,6 +46,9 @@ async function refresh() {
   if (!status.canCapture) return blocked(DENIED)
   $('capture-form').hidden = false
   $('clear').hidden = false
+  const count = $('rule-count')
+  count.max = status.maxCount
+  if (Number(count.value) > status.maxCount) count.value = status.maxCount
   const duration = $('rule-duration')
   duration.querySelectorAll('option').forEach(option => {
     option.disabled = Number(option.value) > status.maxDurationSeconds

@@ -65,10 +65,13 @@ class JdbcTraceQueryExecutionListenerTest {
                 .containsExactlyInAnyOrder(org.assertj.core.groups.Tuple.tuple("SELECT * FROM orders WHERE id IN (?…)", 3L),
                         org.assertj.core.groups.Tuple.tuple("SELECT ? [batch]", 1L));
 
-        for (int i = 0; i <= JdbcTraceQueryExecutionListener.MAX_CACHED_SQL; i++) {
+        // SQL with inlined literals floods the cache; the statement still in use survives every sweep.
+        for (int i = 0; i <= 5 * JdbcTraceQueryExecutionListener.MAX_CACHED_SQL; i++) {
             run(counting, List.of(new QueryInfo("SELECT " + i)));
+            if (i % 100 == 0) run(counting, repeated);
         }
         assertThat(counting.cachedSqlCount()).isBetween(1, JdbcTraceQueryExecutionListener.MAX_CACHED_SQL);
+        assertThat(counting.cached(repeated.get(0).getQuery())).isTrue();
     }
 
     private static void run(JdbcTraceQueryExecutionListener target, List<QueryInfo> queries) {

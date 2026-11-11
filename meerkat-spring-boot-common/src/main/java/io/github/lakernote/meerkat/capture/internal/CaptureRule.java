@@ -24,7 +24,7 @@ public record CaptureRule(String method, String pathPattern, String headerName, 
         headerValue = headerValue == null ? "" : headerValue.trim();
     }
 
-    void validate(long maxDurationSeconds) {
+    void validate(long maxDurationSeconds, int maxCount) {
         if (pathPattern.isEmpty() || !pathPattern.startsWith("/")) {
             throw new IllegalArgumentException("path must start with /");
         }
@@ -36,8 +36,8 @@ public record CaptureRule(String method, String pathPattern, String headerName, 
         if (!headerValue.isEmpty() && headerName.isEmpty()) {
             throw new IllegalArgumentException("header value needs a header name");
         }
-        if (maxCount < 1 || maxCount > MAX_COUNT) {
-            throw new IllegalArgumentException("count must be between 1 and " + MAX_COUNT);
+        if (this.maxCount < 1 || this.maxCount > maxCount) {
+            throw new IllegalArgumentException("count must be between 1 and " + maxCount);
         }
         if (durationSeconds < 1 || durationSeconds > maxDurationSeconds) {
             throw new IllegalArgumentException("duration must be between 1 and " + maxDurationSeconds + " seconds");

@@ -187,6 +187,11 @@ public class MeerkatProperties {
          * from disk. Without usable storage, traces beyond it are dropped.
          */
         private DataSize maxMemorySize = DataSize.ofMegabytes(32);
+        /**
+         * Traces stored per minute for each entry and outcome (error type, slow or resource); later ones that minute
+         * are only counted, so one failing endpoint cannot push out every other trace. Zero or below keeps all.
+         */
+        private int maxPerOperationPerMinute = 60;
         public boolean isEnabled() {
             return enabled;
         }
@@ -266,6 +271,14 @@ public class MeerkatProperties {
 
         public void setMaxMemorySize(DataSize maxMemorySize) {
             this.maxMemorySize = maxMemorySize;
+        }
+
+        public int getMaxPerOperationPerMinute() {
+            return maxPerOperationPerMinute;
+        }
+
+        public void setMaxPerOperationPerMinute(int maxPerOperationPerMinute) {
+            this.maxPerOperationPerMinute = maxPerOperationPerMinute;
         }
     }
 }

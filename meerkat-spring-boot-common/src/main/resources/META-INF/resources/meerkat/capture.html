@@ -47,7 +47,7 @@
       <label class="stats-search capture-path"><span>路径（支持 /** 通配）</span><input id="rule-path" type="text" maxlength="512" placeholder="例如 /api/orders/**" required></label>
       <label class="stats-search"><span>请求头（可选）</span><input id="rule-header" type="text" maxlength="128" placeholder="例如 X-User-Id"></label>
       <label class="stats-search"><span>请求头值（可选）</span><input id="rule-header-value" type="text" maxlength="512" placeholder="留空表示任意值"></label>
-      <label class="stats-search capture-number"><span>抓取次数</span><input id="rule-count" type="number" min="1" max="1000" value="10"></label>
+      <label class="stats-search capture-number"><span>抓取次数</span><input id="rule-count" type="number" min="1" max="100" value="10"></label>
       <label><span>最长时间</span><select id="rule-duration"><option value="60">1 分钟</option><option value="300" selected>5 分钟</option><option value="900">15 分钟</option><option value="1800">30 分钟</option><option value="3600">1 小时</option></select></label>
       <button id="start" class="capture-primary" type="button">开始抓取</button>
     </section>

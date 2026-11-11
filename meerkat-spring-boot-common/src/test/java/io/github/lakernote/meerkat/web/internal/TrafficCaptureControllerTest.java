@@ -23,7 +23,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class TrafficCaptureControllerTest {
     private static final CaptureRule RULE = new CaptureRule("get", "/api/**", null, null, 5, 60);
 
-    private final CaptureSessions sessions = new CaptureSessions(Duration.ofMinutes(10));
+    private final CaptureSessions sessions = new CaptureSessions(Duration.ofMinutes(10), 100);
     private final CaptureStore store = new CaptureStore(10, Duration.ofHours(1));
 
     private static ObservabilityAccessPolicy policy(boolean view, boolean capture) {
