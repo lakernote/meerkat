@@ -59,10 +59,8 @@ class TraceRecordJsonCodecTest {
     }
 
     @Test
-    void ignoresUnknownFieldsAndDefaultsMissingOnes() throws IOException {
-        String json = "{ \"traceId\" : \"t-1\", \"future\": {\"nested\": [1, -2.5e3, true, null, \"x\", {}]},"
-                + " \"treeNodes\": [{\"name\": \"n\", \"extra\": [[]]}], \"sourceType\": \"HTTP\", \"slow\": true,"
-                + " \"logs\": [{\"offsetMs\": 1, \"level\": \"INFO\", \"message\": \"from an older archive\"}] }";
+    void defaultsMissingFields() throws IOException {
+        String json = "{ \"traceId\" : \"t-1\", \"treeNodes\": [{\"name\": \"n\"}], \"sourceType\": \"HTTP\", \"slow\": true }";
 
         TraceRecord trace = CODEC.read(json.getBytes(StandardCharsets.UTF_8));
 
@@ -76,6 +74,15 @@ class TraceRecordJsonCodecTest {
             assertThat(node.kind()).isEqualTo("OTHER");
             assertThat(node.children()).isEmpty();
         });
+    }
+
+    @Test
+    void rejectsUnknownFields() {
+        for (String json : List.of("{\"traceId\":\"t\",\"logs\":[]}", "{\"treeNodes\":[{\"extra\":1}]}")) {
+            assertThatThrownBy(() -> CODEC.read(json.getBytes(StandardCharsets.UTF_8)))
+                    .as(json)
+                    .isInstanceOf(IOException.class).hasMessageContaining("Unknown field");
+        }
     }
 
     @Test
@@ -99,11 +106,8 @@ class TraceRecordJsonCodecTest {
     @Test
     void rejectsPathologicallyDeepNestingWithoutStackOverflow() {
         String deepNodes = "{\"treeNodes\":" + "[{\"children\":".repeat(10_000);
-        String deepUnknown = "{\"x\":" + "[".repeat(100_000);
 
         assertThatThrownBy(() -> CODEC.read(deepNodes.getBytes(StandardCharsets.UTF_8)))
-                .isInstanceOf(IOException.class).hasMessageContaining("Nesting");
-        assertThatThrownBy(() -> CODEC.read(deepUnknown.getBytes(StandardCharsets.UTF_8)))
                 .isInstanceOf(IOException.class).hasMessageContaining("Nesting");
     }
 

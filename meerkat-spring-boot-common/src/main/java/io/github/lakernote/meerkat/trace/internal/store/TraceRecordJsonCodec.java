@@ -12,8 +12,8 @@ import java.util.List;
 /**
  * Dependency-free JSON codec for one diagnostic trace archive line.
  * <p>The archive format is owned by this component and never depends on the host application's JSON library or
- * settings: record components in camelCase, {@code finishedAt} as an ISO-8601 string, unknown fields ignored and
- * missing fields defaulted so the format can evolve without breaking older archives.</p>
+ * settings: record components in camelCase and {@code finishedAt} as an ISO-8601 string. Reading is strict: an
+ * unknown field fails the line, so lines written by another format are skipped instead of half-read.</p>
  */
 class TraceRecordJsonCodec {
     static final TraceRecordJsonCodec INSTANCE = new TraceRecordJsonCodec();
@@ -193,7 +193,7 @@ class TraceRecordJsonCodec {
                         case "errorStackTrace" -> errorStackTrace = readNullableString();
                         case "highCpu" -> highCpu = readBoolean();
                         case "highAllocation" -> highAllocation = readBoolean();
-                        default -> skipValue();
+                        default -> throw new IOException("Unknown field: " + field);
                     }
                 } while (consumeIf(','));
                 expect('}');
@@ -251,7 +251,7 @@ class TraceRecordJsonCodec {
                         case "threadName" -> threadName = readNullableString();
                         case "threadId" -> threadId = readLong();
                         case "children" -> children = readNodes();
-                        default -> skipValue();
+                        default -> throw new IOException("Unknown field: " + field);
                     }
                 } while (consumeIf(','));
                 expect('}');
@@ -268,31 +268,6 @@ class TraceRecordJsonCodec {
                 return Instant.parse(value);
             } catch (RuntimeException invalid) {
                 throw new IOException("Invalid finishedAt: " + value, invalid);
-            }
-        }
-
-        private void skipValue() throws IOException {
-            skipWhitespace();
-            char current = peek();
-            if (current == '"') {
-                readString();
-            } else if (current == '{' || current == '[') {
-                char close = current == '{' ? '}' : ']';
-                enter();
-                position++;
-                if (!consumeIf(close)) {
-                    do {
-                        if (close == '}') {
-                            readString();
-                            expect(':');
-                        }
-                        skipValue();
-                    } while (consumeIf(','));
-                    expect(close);
-                }
-                depth--;
-            } else if (!consumeLiteral("true") && !consumeLiteral("false") && !consumeLiteral("null")) {
-                readNumber();
             }
         }
 
