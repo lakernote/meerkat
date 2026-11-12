@@ -149,6 +149,47 @@ class RedissonTraceConnectionFactoryPostProcessorTest {
     }
 
     @Test
+    void marksTheFailedCommandSpanAsWellAsTheTrace() {
+        var processor = new RedissonTraceConnectionFactoryPostProcessor(() -> null);
+        TraceContext.startRoot("GET /cache", io.github.lakernote.meerkat.trace.SpanKind.HTTP);
+
+        assertThatThrownBy(processor.wrap(connection(true))::ping).isInstanceOf(IllegalStateException.class);
+
+        var completion = new java.util.concurrent.atomic.AtomicReference<io.github.lakernote.meerkat.trace.internal.TraceCompletion>();
+        TraceContext.stopRoot(0, null, completion::set);
+        assertThat(completion.get().error()).isTrue();
+        assertThat(completion.get().nodes().get(0).children()).singleElement()
+                .satisfies(command -> assertThat(command.error()).isTrue());
+    }
+
+    @Test
+    void closesTheCommandSpanEvenWhenTheFailureCannotBeFormatted() {
+        var processor = new RedissonTraceConnectionFactoryPostProcessor(() -> null);
+        RuntimeException unformattable = new IllegalStateException("broken") {
+            @Override
+            public StackTraceElement[] getStackTrace() {
+                throw new UnsupportedOperationException("no stack");
+            }
+        };
+        RedisConnection failing = (RedisConnection) Proxy.newProxyInstance(
+                RedisConnection.class.getClassLoader(), new Class<?>[]{RedisConnection.class},
+                (proxy, method, args) -> {
+                    if (method.getName().equals("ping")) throw unformattable;
+                    return method.getName().equals("isPipelined") || method.getName().equals("isQueueing")
+                            ? Boolean.FALSE : null;
+                });
+        TraceContext.startRoot("GET /cache", io.github.lakernote.meerkat.trace.SpanKind.HTTP);
+
+        assertThatThrownBy(processor.wrap(failing)::ping).isSameAs(unformattable);
+
+        var completion = new java.util.concurrent.atomic.AtomicReference<io.github.lakernote.meerkat.trace.internal.TraceCompletion>();
+        TraceContext.markSlow("TEST_CAPTURE");
+        TraceContext.stopRoot(0, null, completion::set);
+        assertThat(completion.get().nodes().get(0).children()).singleElement()
+                .satisfies(command -> assertThat(command.unfinishedAtTraceEnd()).isFalse());
+    }
+
+    @Test
     void skipsPerCommandLatencyForPipelinedConnection() {
         OperationStats stats = new OperationStats(10);
         var processor = new RedissonTraceConnectionFactoryPostProcessor(() -> stats);

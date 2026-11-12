@@ -115,8 +115,8 @@ Meerkat 在应用内部回答两个日常问题：
 
 ```bash
 docker compose -f examples/docker-compose.yml up -d --wait
-mvn -pl examples/meerkat-example-spring-boot-3 -am package
-java -jar examples/meerkat-example-spring-boot-3/target/meerkat-example-spring-boot-3-0.1.0-alpha.4.jar
+mvn -pl examples/meerkat-example-spring-boot-3 -am clean package -DskipTests
+java -jar examples/meerkat-example-spring-boot-3/target/meerkat-example-spring-boot-3-*.jar
 ```
 
 打开 `http://localhost:8083/` 点击各个场景。Boot 4 启动方式见[示例说明](examples/README.md)。

@@ -84,6 +84,21 @@ class ObservationCaptureTest {
     }
 
     @Test
+    void reinstallsTheRemoteTargetWhenTheObservationIsInScopeAgainAfterAReset() {
+        startCapture();
+        Observation observation = remoteObservation();
+
+        try (Observation.Scope scope = observation.openScope()) {
+            scope.reset();
+            assertThat(CaptureThreadState.claimRemote()).isNull();
+        }
+        try (Observation.Scope ignored = observation.openScope()) {
+            assertThat(CaptureThreadState.claimRemote()).isNotNull();
+        }
+        observation.stop();
+    }
+
+    @Test
     void restoresTheOuterRemoteTargetWhenTheScopeCloses() {
         startCapture();
         CaptureTarget outer = TraceContext.currentCaptureTarget();

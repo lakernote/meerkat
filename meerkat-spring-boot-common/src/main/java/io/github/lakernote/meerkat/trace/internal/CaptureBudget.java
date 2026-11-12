@@ -28,7 +28,10 @@ final class CaptureBudget {
         }
         if (text == null) text = "null";
         if (text.length() > limit) {
-            text = text.substring(0, limit) + "… [truncated, " + text.length() + " chars]";
+            // The marker counts against the limit too, so a value never takes more than its share of the budget.
+            String marker = "… [truncated, " + text.length() + " chars]";
+            text = marker.length() < limit ? text.substring(0, limit - marker.length()) + marker
+                    : text.substring(0, limit);
         }
         remainingChars -= text.length();
         return text;

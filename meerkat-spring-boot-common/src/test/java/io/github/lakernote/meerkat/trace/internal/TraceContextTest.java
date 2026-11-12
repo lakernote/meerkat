@@ -174,6 +174,29 @@ class TraceContextTest {
     }
 
     @Test
+    void logsTheErrorSummaryForATraceMarkedFailedWithoutARootException() {
+        Logger logger = (Logger) LoggerFactory.getLogger(TraceContext.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        boolean additive = logger.isAdditive();
+        logger.setAdditive(false);
+        logger.addAppender(appender);
+        appender.start();
+        try {
+            TraceContext.startRoot("GET /orders", SpanKind.HTTP);
+            TraceContext.markError("SQL_ERROR", new java.sql.SQLException("table missing"));
+
+            TraceContext.stopRoot(Long.MAX_VALUE, null, ignored -> { });
+
+            assertThat(appender.list).singleElement().satisfies(event -> assertThat(event.getFormattedMessage())
+                    .startsWith("Trace error ").contains("java.sql.SQLException", "GET /orders"));
+        } finally {
+            logger.detachAppender(appender);
+            logger.setAdditive(additive);
+            appender.stop();
+        }
+    }
+
+    @Test
     void shouldKeepFullErrorEvidenceAndIncludeTheBoundedTreeInTheLog() {
         Logger logger = (Logger) LoggerFactory.getLogger(TraceContext.class);
         ListAppender<ILoggingEvent> appender = new ListAppender<>();

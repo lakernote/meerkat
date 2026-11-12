@@ -115,8 +115,8 @@ The example app covers JDBC, Redis, remote HTTP, Kafka, async executors and reso
 
 ```bash
 docker compose -f examples/docker-compose.yml up -d --wait
-mvn -pl examples/meerkat-example-spring-boot-3 -am package
-java -jar examples/meerkat-example-spring-boot-3/target/meerkat-example-spring-boot-3-0.1.0-alpha.4.jar
+mvn -pl examples/meerkat-example-spring-boot-3 -am clean package -DskipTests
+java -jar examples/meerkat-example-spring-boot-3/target/meerkat-example-spring-boot-3-*.jar
 ```
 
 Open `http://localhost:8083/` and click the scenarios. See [examples](examples/README.md) for the Boot 4 variant.

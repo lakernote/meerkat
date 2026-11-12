@@ -44,3 +44,4 @@
 .flame-tip strong { display:block; margin-bottom:2px; font-family:ui-monospace, SFMono-Regular, Menlo, monospace; word-break:break-all; }
 @media(max-width:720px) { .tools-head { align-items:stretch; flex-direction:column; padding:0 14px 10px; } .tools-head .capture-heading { padding-left:0; padding-right:0; } .tools-head-search { flex:none; } .flame-search { flex:1 1 100%; } }
 .tools-form .capture-stop { min-height:40px; padding:0 14px; font-size:13px; }
+.row-action { padding:0; border:0; background:none; color:inherit; font:inherit; text-align:left; word-break:break-all; cursor:pointer; }

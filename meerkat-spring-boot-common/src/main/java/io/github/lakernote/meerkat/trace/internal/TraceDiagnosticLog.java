@@ -25,11 +25,12 @@ final class TraceDiagnosticLog {
      * {@code Slow trace 345ms > 250ms [SLOW_JOB] traceId=...}; zero counters are omitted.
      */
     static void summarize(TraceCompletion result, long slowThresholdMs, Throwable throwable, String traceId) {
-        if (throwable != null) {
+        // A trace can be marked failed (SQL, Redis, HTTP status) without the root throwing.
+        if (throwable != null || result.error()) {
             long suppressed = ERROR_LIMITER.tryAcquire(System.nanoTime());
             if (suppressed < 0) return;
             StringBuilder header = new StringBuilder(128).append("Trace error ").append(result.costMs()).append("ms ");
-            appendOneLine(header, throwable.getClass().getName());
+            appendOneLine(header, throwable != null ? throwable.getClass().getName() : oneLine(result.errorType()));
             log.error("{}\n{}", finish(header, result, traceId, suppressed), result.tree());
         } else if (slowThresholdMs > 0 && result.costMs() >= slowThresholdMs) {
             long suppressed = SLOW_LIMITER.tryAcquire(System.nanoTime());

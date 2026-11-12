@@ -519,6 +519,8 @@
     '最热方法': 'Hottest methods',
     '按自身采样数排序': 'by self samples',
     '按自身采样数排序的方法': 'Methods by self samples',
+    '文字版见下方“最热方法”表': 'See the Hottest methods table below for a text version',
+    '填入上面的表单': 'Fill in the form above',
     '样本': 'Samples',
     '占比': 'Share',
     '直方图参数': 'Histogram options',

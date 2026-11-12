@@ -296,6 +296,21 @@ class MetricsArchiveTest {
     }
 
     @Test
+    void clearOperationsStillDeletesFilesAfterPersistenceWasDisabled() throws Exception {
+        MetricsArchive archive = archive();
+        Files.writeString(operations("20261104"), "x");
+        // A write to a day whose file is a directory fails and turns persistence off.
+        Files.createDirectories(operations("20261105"));
+        assertThat(archive.appendOperations(millis("2026-11-05T10:00:00Z"), List.of(row("a")), TODAY)).isFalse();
+        assertThat(archive.available()).isFalse();
+        Files.delete(operations("20261105"));
+
+        archive.clearOperations();
+
+        assertThat(operations("20261104")).doesNotExist();
+    }
+
+    @Test
     void unusableDirectoryKeepsStatisticsInMemory() throws Exception {
         Path notADirectory = Files.writeString(directory.resolve("file"), "x");
         MetricsArchive archive = new MetricsArchive(notADirectory.resolve("metrics"), MB, 30, ZoneOffset.UTC);

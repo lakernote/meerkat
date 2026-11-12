@@ -130,16 +130,19 @@ class TraceCaptureTest {
         CaptureTarget root = TraceContext.currentCaptureTarget();
         root.capture("a", "a".repeat(100));
         root.capture("b", "b".repeat(100));
-        root.capture("c", "c".repeat(10));
+        root.capture("c", "c".repeat(30));
         root.capture("d", "d".repeat(10));
+        root.capture("e", "e".repeat(10));
 
         TraceContext.stopRoot(Long.MAX_VALUE);
 
         Map<String, String> captures = captured.get().get(0).captures();
-        assertThat(captures.get("a")).isEqualTo("a".repeat(64) + "… [truncated, 100 chars]");
-        assertThat(captures.get("b")).startsWith("b".repeat(62) + "…").contains("[truncated, 100 chars]");
-        assertThat(captures.get("c")).isEqualTo(CaptureBudget.OMITTED);
-        assertThat(captures).doesNotContainKey("d");
+        assertThat(captures.get("a")).isEqualTo("a".repeat(40) + "… [truncated, 100 chars]").hasSize(64);
+        assertThat(captures.get("b")).isEqualTo("b".repeat(40) + "… [truncated, 100 chars]");
+        // Too little budget left for the marker: the value is cut exactly at the budget.
+        assertThat(captures.get("c")).isEqualTo("c".repeat(22));
+        assertThat(captures.get("d")).isEqualTo(CaptureBudget.OMITTED);
+        assertThat(captures).doesNotContainKey("e");
     }
 
     @Test

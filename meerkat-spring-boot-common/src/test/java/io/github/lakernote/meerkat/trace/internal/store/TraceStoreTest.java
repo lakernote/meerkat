@@ -64,6 +64,19 @@ class TraceStoreTest {
     }
 
     @Test
+    void lateTraceFromThePreviousMinuteDoesNotResetTheLimit() {
+        TraceStore store = store(100, 128 * MB).limitPerOperation(1);
+        clock.advance(Duration.ofMinutes(1));
+        assertThat(store.add(trace("now").name("GET /pay").build())).isNotNull();
+
+        // A thread that read the clock just before the minute boundary finishes last.
+        clock.advance(Duration.ofMinutes(-1));
+        assertThat(store.add(trace("late").name("GET /pay").build())).isNull();
+        clock.advance(Duration.ofMinutes(1));
+        assertThat(store.add(trace("again").name("GET /pay").build())).isNull();
+    }
+
+    @Test
     void memoryOnlyStoreForgetsTracesBeyondTheHotWindow() {
         TraceStore store = TraceStore.inMemory(2 * trace("a").build().estimatedBytes());
         store.add(trace("a").build());

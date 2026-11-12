@@ -50,6 +50,29 @@ class TransactionTraceListenerTest {
     }
 
     @Test
+    void closesTransactionSpanEvenWhenTheFailureCannotBeFormatted() {
+        TransactionTraceListener listener = new TransactionTraceListener(new MeerkatProperties());
+        TransactionExecution execution = execution("OrderService#create", false);
+        RuntimeException unformattable = new IllegalStateException("broken") {
+            @Override
+            public StackTraceElement[] getStackTrace() {
+                throw new UnsupportedOperationException("no stack");
+            }
+        };
+        io.github.lakernote.meerkat.trace.internal.TraceContext.startRoot("POST /orders",
+                io.github.lakernote.meerkat.trace.SpanKind.HTTP);
+        listener.beforeBegin(execution);
+        listener.afterRollback(execution, unformattable);
+
+        java.util.concurrent.atomic.AtomicReference<TraceCompletion> completion =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        io.github.lakernote.meerkat.trace.internal.TraceContext.markSlow("TEST_CAPTURE");
+        io.github.lakernote.meerkat.trace.internal.TraceContext.stopRoot(0, null, completion::set);
+        assertThat(completion.get().nodes().get(0).children()).singleElement()
+                .satisfies(transaction -> assertThat(transaction.unfinishedAtTraceEnd()).isFalse());
+    }
+
+    @Test
     void closesTransactionSpanWhenBeginFails() {
         MeerkatProperties properties = new MeerkatProperties();
         TransactionTraceListener listener = new TransactionTraceListener(properties);

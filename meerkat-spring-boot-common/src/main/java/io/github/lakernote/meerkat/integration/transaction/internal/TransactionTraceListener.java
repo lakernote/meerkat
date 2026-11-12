@@ -17,8 +17,8 @@ import java.util.WeakHashMap;
 public final class TransactionTraceListener implements TransactionExecutionListener {
     private final MeerkatProperties properties;
     /**
-     * Shared rather than thread-local because some transaction managers complete on another thread. Weak keys drop
-     * the state of an execution that never reports completion.
+     * Shared rather than thread-local because some transaction managers complete on another thread. Weak keys let
+     * an execution that never reports completion be collected; Spring's executions use identity equality.
      */
     private final Map<TransactionExecution, State> states = Collections.synchronizedMap(new WeakHashMap<>());
 
@@ -43,7 +43,7 @@ public final class TransactionTraceListener implements TransactionExecutionListe
                 state.span = TraceContext.startScopedSpan(state.name, SpanKind.TRANSACTION,
                         state.readOnly ? "read-only" : "write");
             }
-            states.put(execution, state);
+            if (state.span != null || ownsTraceId) states.put(execution, state);
         } catch (Throwable ignored) {
             states.remove(execution);
         }
@@ -68,18 +68,18 @@ public final class TransactionTraceListener implements TransactionExecutionListe
         State state = states.remove(execution);
         if (state == null) return;
         try {
-            BoundedThrowableFormatter.FailureEvidence error = failure == null
-                    ? success ? null : new BoundedThrowableFormatter.FailureEvidence(
-                    "TransactionRollback", "Transaction rolled back", "")
-                    : BoundedThrowableFormatter.capture(failure);
-            if (state.span != null) {
+            if (state.span != null && !success) {
+                BoundedThrowableFormatter.FailureEvidence error = failure == null
+                        ? new BoundedThrowableFormatter.FailureEvidence(
+                        "TransactionRollback", "Transaction rolled back", "")
+                        : BoundedThrowableFormatter.capture(failure);
                 // The span belongs to the trace that began the transaction, whichever thread completes it.
-                if (!success) state.span.markTraceError("TRANSACTION_ERROR", error);
-                state.span.close();
+                state.span.markTraceError("TRANSACTION_ERROR", error);
             }
         } catch (Throwable ignored) {
             // Instrumentation must never change the transaction result.
         } finally {
+            if (state.span != null) state.span.close();
             if (state.ownsTraceId && state.traceId.equals(TraceIdContext.currentTraceId())) TraceIds.clear();
         }
     }

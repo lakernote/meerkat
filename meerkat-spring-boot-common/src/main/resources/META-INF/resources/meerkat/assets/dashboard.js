@@ -1,4 +1,4 @@
-import { $, initializeEmbeddedAuth, kindName, node, poll, request as apiRequest } from './common.js?v=20261111.4'
+import { $, initializeEmbeddedAuth, kindName, node, poll, request as apiRequest } from './common.js?v=20261111.6'
 
 const PAGE_SIZE = 50
 let traces = { items: [], nextCursor: null, scanLimited: false, total: 0 }

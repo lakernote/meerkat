@@ -1,7 +1,7 @@
 // Shared by the call ranking, metric trend and live pages: metric labels, formatting and uPlot line charts.
-import { node, request as apiRequest } from './common.js?v=20261111.4'
+import { node, request as apiRequest } from './common.js?v=20261111.6'
 
-export { $, api, initializeEmbeddedAuth, kindName, node, poll, showNotice } from './common.js?v=20261111.4'
+export { $, api, initializeEmbeddedAuth, kindName, node, poll, showNotice } from './common.js?v=20261111.6'
 export const DISABLED_MESSAGE = t('运行指标未启用：请确认 meerkat.metrics.enabled 为 true')
 export const categoryNames = {
   HTTP: t('HTTP 接口'), SQL: 'SQL', REMOTE: t('远程调用'), REDIS: 'Redis',

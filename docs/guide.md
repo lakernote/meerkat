@@ -67,7 +67,7 @@ Common settings are listed below; anything not listed keeps the starter default.
 | `meerkat.metrics.enabled` | `true` | Master switch for runtime metrics (operation statistics and resource metrics) |
 | `meerkat.metrics.max-operations` | `500` | Maximum operations tracked across all categories. Beyond it, new operations go to an "other" row per category; operations without calls for 1 hour release their slot |
 | `meerkat.metrics.retention` | `30d` | Metric history retention, whole days from `1d` to `365d` |
-| `meerkat.metrics.max-storage-size` | `64MB` | Disk limit for metric history; the oldest days are deleted beyond it |
+| `meerkat.metrics.max-storage-size` | `64MB` | Disk limit for metric history; the oldest days are deleted beyond it, the newest day is always kept |
 | `meerkat.web.enabled` | `true` | Dashboard and query API |
 
 Example:
@@ -159,7 +159,7 @@ Resource metrics come from the Micrometer meters Spring Boot already binds; Meer
 Operation statistics are written in 10-minute slices and resource metrics once a minute, appended to `metrics/operations-yyyyMMdd.tsv` and `metrics/resources-yyyyMMdd.tsv` in the storage directory. A graceful shutdown writes the current partial slice, so every window survives restarts: at startup the last hour's slices are read back, and the pre-restart part of minute charts is spread evenly over each 10 minutes. If the process is killed, at most about 10 minutes of operation statistics are lost.
 
 - Files older than two days are compacted once: operation statistics into one line per hour, resource metrics into 10-minute buckets combined as described above, so 30 days of data is usually only a few MB.
-- Days older than `metrics.retention` are deleted; when the total exceeds `metrics.max-storage-size`, the oldest days are deleted.
+- Days older than `metrics.retention` are deleted; when the total exceeds `metrics.max-storage-size`, the oldest days are deleted. The newest day is always kept, so with a very small limit the archive can exceed it by that one day.
 - When the storage directory is unavailable (owned by another instance or not writable), data stays in memory only, longer windows only cover about the last hour, and the dashboard says so.
 - Each instance stores its own data; nothing is aggregated across instances. When `canClear()` allows it, the Operations page shows "Reset stats", which clears operation statistics in memory and on disk; resource metric history is kept.
 

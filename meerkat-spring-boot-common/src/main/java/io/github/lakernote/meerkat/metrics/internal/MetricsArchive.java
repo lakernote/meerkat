@@ -276,7 +276,8 @@ public final class MetricsArchive {
         today = null;
         todayDate = null;
         todaySize = -1;
-        if (!available) return;
+        // Also after persistence was disabled by an I/O error: the files on disk would come back after a restart.
+        if (directory == null || !Files.isDirectory(directory)) return;
         IOException failure = null;
         try {
             for (Path file : files(OPERATIONS).values()) {
@@ -369,6 +370,10 @@ public final class MetricsArchive {
         }
     }
 
+    /**
+     * Deletes days past retention, then whole days, oldest first, while over the size budget.
+     * The newest day is never deleted, so the archive can exceed the budget by that one day.
+     */
     private void enforceLimits(LocalDate today) throws IOException {
         TreeMap<LocalDate, List<Path>> days = new TreeMap<>();
         files(OPERATIONS).forEach((date, file) -> days.computeIfAbsent(date, ignored -> new ArrayList<>()).add(file));

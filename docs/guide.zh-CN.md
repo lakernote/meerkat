@@ -67,7 +67,7 @@ JDBC 采集会使用保留原数据源具体类型的代理，因此按 `HikariD
 | `meerkat.metrics.enabled` | `true` | 运行指标（调用统计与资源指标）总开关 |
 | `meerkat.metrics.max-operations` | `500` | 所有类别合计最多统计的操作数，超出后新操作按类别并入“其他”行；1 小时没有调用的操作会释放名额 |
 | `meerkat.metrics.retention` | `30d` | 指标历史保留时长，须为整天数，范围 `1d` 至 `365d` |
-| `meerkat.metrics.max-storage-size` | `64MB` | 指标历史文件的磁盘上限，超出后删除最早的日期 |
+| `meerkat.metrics.max-storage-size` | `64MB` | 指标历史文件的磁盘上限，超出后删除最早的日期，最新一天始终保留 |
 | `meerkat.web.enabled` | `true` | 页面和查询 API 开关 |
 
 示例：
@@ -159,7 +159,7 @@ Trace 页面的 **异常聚合** 面板展示同样的数据：同类失败合�
 调用统计每 10 分钟一片、资源指标每分钟一个样本，追加写入存储目录下的 `metrics/operations-yyyyMMdd.tsv` 和 `metrics/resources-yyyyMMdd.tsv`。应用正常关闭时会写入当前未满的分片，重启后各时间范围都保留：启动时读回最近 1 小时的分片，分钟曲线上重启前的部分按 10 分钟均摊；进程被强制杀死时最多丢失最近约 10 分钟的调用统计。
 
 - 两天前的文件会压缩一次：调用统计合并为每小时一行，资源指标按上述规则合并为每 10 分钟一个点，因此 30 天的数据通常只有几 MB。
-- 超过 `metrics.retention` 的日期会被删除；总大小超过 `metrics.max-storage-size` 时按天删除最早的数据。
+- 超过 `metrics.retention` 的日期会被删除；总大小超过 `metrics.max-storage-size` 时按天删除最早的数据。最新一天始终保留，上限设得很小时实际占用可能超出这一天的量。
 - 存储目录不可用（被其他实例占用或不可写）时只保存在内存，长范围只包含最近约 1 小时，页面会提示。
 - 每个实例各自保存，不跨实例汇总。`canClear()` 允许时调用排行页显示“重置统计”，会清空内存中和已保存的调用统计，资源指标历史保留。
 

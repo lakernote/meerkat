@@ -15,12 +15,15 @@ class OkHttpObservationAutoConfigurationTest {
         assertThat(uri("/verify/eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl")).isEqualTo("/verify/{id}");
         assertThat(uri("/reset/Zx8kQ2pLm9Rt4Vw7Yb3Nc6Hd")).isEqualTo("/reset/{id}");
         assertThat(uri("/orders/ORD20260001")).isEqualTo("/orders/{id}");
+        assertThat(uri("/keys/ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef")).isEqualTo("/keys/{id}");
+        assertThat(uri("/keys/qmxkrtpzlwnvbshyjcfdqmxk")).isEqualTo("/keys/{id}");
     }
 
     @Test
     void keepsOrdinaryPathWords() {
         assertThat(uri("/api/v2/oauth2/token")).isEqualTo("/api/v2/oauth2/token");
         assertThat(uri("/s3/buckets/")).isEqualTo("/s3/buckets/");
+        assertThat(uri("/api/getUserPreferences/ORDER_STATUS_LIST")).isEqualTo("/api/getUserPreferences/ORDER_STATUS_LIST");
         assertThat(uri("/")).isEqualTo("/");
         assertThat(uri("/a".repeat(200))).hasSize(256);
     }

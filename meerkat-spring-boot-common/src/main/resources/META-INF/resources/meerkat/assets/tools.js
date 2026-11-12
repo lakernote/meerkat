@@ -1,6 +1,6 @@
 import {
   $, authHeaders, bearerToken, csrfToken, initializeEmbeddedAuth, loginRedirected, node, SESSION_EXPIRED_MESSAGE, showNotice
-} from './common.js?v=20261111.4'
+} from './common.js?v=20261111.6'
 
 const API = new URL('../../api/meerkat/tools/', import.meta.url)
 const DENIED = t('没有查看的权限，请登录或检查 ObservabilityAccessPolicy')
@@ -18,6 +18,7 @@ let flameRects = []
 let tab = 'log-levels'
 let loggerSearchTimer = null
 let loggerRequest = 0
+let loggersFailed = false
 let statusRequest = 0
 let statusFailed = false
 /** Names from the root to the frame chosen with the keyboard, or null. */
@@ -149,8 +150,13 @@ async function refresh() {
     if (allowed.length) $('logger-duration').value = allowed[allowed.length - 1].value
   }
   $('histogram-baseline').textContent = status.histogramBaseline ? t('已有上次快照，本次将与其对比') : t('首次采集将作为对比基线')
-  await loadLoggers()
-  if (status.profile && !profile) await loadProfile(status.profile.id)
+  // Status already succeeded; a failing section reports itself instead of leaving the page silently empty.
+  try {
+    await loadLoggers()
+    if (status.profile && !profile) await loadProfile(status.profile.id)
+  } catch (error) {
+    if (requestId === statusRequest) showNotice(error.message, true)
+  }
 }
 
 // ---- log levels ----
@@ -163,24 +169,36 @@ async function loadLoggers() {
   }
   const query = $('logger-query').value.trim()
   const requestId = ++loggerRequest
-  const result = await call(`loggers?limit=200&q=${encodeURIComponent(query)}`)
+  let result
+  try {
+    result = await call(`loggers?limit=200&q=${encodeURIComponent(query)}`)
+  } catch (error) {
+    // A stale query's failure must not replace the outcome of the newer one.
+    if (requestId !== loggerRequest) return
+    loggersFailed = true
+    throw error
+  }
   if (requestId !== loggerRequest) return
+  // Clear only the notice left by an earlier logger failure, not an unrelated message.
+  if (loggersFailed) {
+    loggersFailed = false
+    showNotice('')
+  }
   overrides = result.overrides
   renderOverrides()
   const loggers = result.loggers.loggers
   $('logger-rows').replaceChildren(...loggers.map(logger => {
     const row = node('tr', logger.overriddenUntil ? 'is-selected' : null)
-    row.append(cell(logger.name, 'mono'), cell(logger.configuredLevel), cell(logger.effectiveLevel))
-    row.tabIndex = 0
-    const choose = () => {
+    // A real button names the action for keyboard and screen-reader users; the whole row stays clickable.
+    const choose = node('button', 'row-action', logger.name)
+    choose.type = 'button'
+    choose.title = t('填入上面的表单')
+    const name = node('td', 'mono')
+    name.append(choose)
+    row.append(name, cell(logger.configuredLevel), cell(logger.effectiveLevel))
+    row.addEventListener('click', () => {
       $('logger-name').value = logger.name
       $('logger-name').focus()
-    }
-    row.addEventListener('click', choose)
-    row.addEventListener('keydown', event => {
-      if (event.key !== 'Enter' && event.key !== ' ') return
-      event.preventDefault()
-      choose()
     })
     return row
   }))

@@ -89,11 +89,12 @@ public class OkHttpObservationAutoConfiguration {
         if (segment.isEmpty()) return false;
         if (IDENTIFIER_SEGMENT.matcher(segment).matches()) return true;
         if (segment.indexOf('@') >= 0 || segment.toLowerCase(java.util.Locale.ROOT).contains("%40")) return true;
+        // Real path names are short; any 24+ character segment is treated as a token, whatever its alphabet.
+        if (segment.length() >= 24) return true;
         int digits = 0;
         for (int i = 0; i < segment.length(); i++) {
             if (Character.isDigit(segment.charAt(i))) digits++;
         }
-        if (segment.length() >= 24 && (digits > 0 || segment.indexOf('.') >= 0)) return true;
         return digits >= 4;
     }
 

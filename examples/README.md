@@ -16,11 +16,11 @@ docker compose -f examples/docker-compose.yml up -d --wait
 然后在仓库根目录选择一个 Spring Boot 版本启动：
 
 ```bash
-mvn -pl examples/meerkat-example-spring-boot-3 -am package
-java -jar examples/meerkat-example-spring-boot-3/target/meerkat-example-spring-boot-3-0.1.0-alpha.4.jar
+mvn -pl examples/meerkat-example-spring-boot-3 -am clean package -DskipTests
+java -jar examples/meerkat-example-spring-boot-3/target/meerkat-example-spring-boot-3-*.jar
 
-mvn -pl examples/meerkat-example-spring-boot-4 -am package
-java -jar examples/meerkat-example-spring-boot-4/target/meerkat-example-spring-boot-4-0.1.0-alpha.4.jar
+mvn -pl examples/meerkat-example-spring-boot-4 -am clean package -DskipTests
+java -jar examples/meerkat-example-spring-boot-4/target/meerkat-example-spring-boot-4-*.jar
 ```
 
 页面入口：Trace 诊断 `/meerkat/`、调用排行 `/meerkat/stats/`、指标趋势 `/meerkat/metrics/`、实时诊断 `/meerkat/live/`、流量抓取 `/meerkat/capture/`、工具箱 `/meerkat/tools/`。

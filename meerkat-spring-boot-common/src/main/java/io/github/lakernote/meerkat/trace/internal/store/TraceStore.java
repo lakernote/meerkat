@@ -412,7 +412,9 @@ public final class TraceStore implements AutoCloseable {
         if (limit <= 0) return true;
         long minute = Math.floorDiv(nowMillis, 60_000L);
         Window current = window.get();
-        if (current.minute != minute) {
+        // Only move forward: a trace finishing late in the previous minute must not swap the old window back in
+        // and hand the new minute a second full budget. It counts against the current window instead.
+        while (current.minute < minute) {
             Window next = new Window(minute);
             current = window.compareAndSet(current, next) ? next : window.get();
         }
@@ -724,7 +726,7 @@ public final class TraceStore implements AutoCloseable {
             boolean oversized = false;
             long limit = segment.loadedSize;
             int read;
-            while (position < limit
+            while (position < limit && !Thread.currentThread().isInterrupted()
                     && (read = input.read(buffer, 0, (int) Math.min(buffer.length, limit - position))) >= 0) {
                 int from = 0;
                 for (int i = 0; i < read; i++) {

@@ -65,13 +65,27 @@ class JdbcTraceQueryExecutionListenerTest {
                 .containsExactlyInAnyOrder(org.assertj.core.groups.Tuple.tuple("SELECT * FROM orders WHERE id IN (?…)", 3L),
                         org.assertj.core.groups.Tuple.tuple("SELECT ? [batch]", 1L));
 
-        // SQL with inlined literals floods the cache; the statement still in use survives every sweep.
+        // Many distinct statements flood the cache; the statement still in use survives every sweep.
         for (int i = 0; i <= 5 * JdbcTraceQueryExecutionListener.MAX_CACHED_SQL; i++) {
-            run(counting, List.of(new QueryInfo("SELECT " + i)));
+            run(counting, List.of(new QueryInfo("SELECT c" + i + " FROM t")));
             if (i % 100 == 0) run(counting, repeated);
         }
         assertThat(counting.cachedSqlCount()).isBetween(1, JdbcTraceQueryExecutionListener.MAX_CACHED_SQL);
         assertThat(counting.cached(repeated.get(0).getQuery())).isTrue();
+
+        // SQL with inlined secrets is cached too, but only under a fingerprint: the raw text is never kept.
+        String secret = "UPDATE users SET password = 'hunter2' WHERE ssn = 123456789 /* token=abc */";
+        run(counting, List.of(new QueryInfo(secret)));
+        assertThat(counting.cached(secret)).isTrue();
+        assertThat(JdbcTraceQueryExecutionListener.fingerprint(secret))
+                .isEqualTo(JdbcTraceQueryExecutionListener.fingerprint(new String(secret.toCharArray())))
+                .isNotEqualTo(JdbcTraceQueryExecutionListener.fingerprint(secret.replace("hunter2", "hunter3")))
+                .isNotEqualTo(JdbcTraceQueryExecutionListener.fingerprint(secret + " "));
+        // "Aa" and "BB" share String.hashCode and length; the fingerprint keeps them apart.
+        assertThat("SELECT Aa FROM t".hashCode()).isEqualTo("SELECT BB FROM t".hashCode());
+        run(counting, List.of(new QueryInfo("SELECT Aa FROM t")));
+        assertThat(counting.cached("SELECT Aa FROM t")).isTrue();
+        assertThat(counting.cached("SELECT BB FROM t")).isFalse();
     }
 
     private static void run(JdbcTraceQueryExecutionListener target, List<QueryInfo> queries) {

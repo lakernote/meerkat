@@ -225,6 +225,14 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
         // Context propagation clears every scope on the thread at once, including capture state opened under them.
         TraceContext.resetRootScopes();
         CaptureThreadState.clear();
+        ObservationState state = context.get(STATE_KEY);
+        if (state != null && state.remoteCaptureThread == Thread.currentThread().getId()) {
+            // The capture installed by this thread is gone; let the next scope of this observation install it again.
+            synchronized (state) {
+                state.previousRemoteCapture = null;
+                state.remoteCaptureThread = 0;
+            }
+        }
     }
 
     @Override

@@ -178,8 +178,7 @@ class JdbcCaptureTest {
         run(queries, new ExecutionInfo());
 
         String sql = sqlCaptures(finish()).get("sql");
-        assertThat(sql).startsWith("-- batch of 10000 statements\nINSERT INTO t VALUES (0);").contains("[truncated,");
-        assertThat(sql.length()).isLessThan(200);
+        assertThat(sql).startsWith("-- batch of 10000 statements\nINSERT INTO").contains("[truncated,").hasSize(64);
     }
 
     @Test

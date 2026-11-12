@@ -13,6 +13,7 @@ import net.ttddyy.dsproxy.listener.QueryExecutionListener;
 import net.ttddyy.dsproxy.proxy.ProxyConfig;
 import net.ttddyy.dsproxy.proxy.ProxyJdbcObject;
 
+import java.lang.ref.WeakReference;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BooleanSupplier;
@@ -34,7 +35,11 @@ public final class JdbcTraceQueryExecutionListener implements QueryExecutionList
      */
     static final int MAX_CACHED_SQL = 1_024;
     static final int MAX_CACHED_SQL_LENGTH = 2_048;
-    private final ConcurrentHashMap<String, CachedNames> sqlNames = new ConcurrentHashMap<>();
+    /**
+     * Keyed by the SQL's own (cached) hash code and length, and confirmed by a 64-bit fingerprint, so the raw SQL,
+     * which may contain literal secrets, is never strongly retained.
+     */
+    private final ConcurrentHashMap<Long, CachedNames> sqlNames = new ConcurrentHashMap<>();
 
     public JdbcTraceQueryExecutionListener() {
         this(null, () -> true);
@@ -104,22 +109,52 @@ public final class JdbcTraceQueryExecutionListener implements QueryExecutionList
     private SqlNames sqlNames(List<QueryInfo> queries) {
         QueryInfo single = queries != null && queries.size() == 1 ? queries.get(0) : null;
         String raw = single == null ? null : single.getQuery();
-        boolean cacheable = raw != null && raw.length() <= MAX_CACHED_SQL_LENGTH;
-        if (cacheable) {
-            CachedNames cached = sqlNames.get(raw);
-            if (cached != null) {
-                if (!cached.used) cached.used = true;
-                return cached.names;
+        if (raw == null || raw.length() > MAX_CACHED_SQL_LENGTH) return names(JdbcTraceSql.describe(queries), queries);
+        Long key = ((long) raw.hashCode() << 32) | raw.length();
+        CachedNames cached = sqlNames.get(key);
+        if (cached != null) {
+            // ORMs reuse the same String for a statement, which then needs no scan at all.
+            if (cached.lastSeen.get() != raw) {
+                if (cached.fingerprint != fingerprint(raw)) return names(JdbcTraceSql.describe(queries), queries);
+                cached.lastSeen = new WeakReference<>(raw);
             }
+            if (!cached.used) cached.used = true;
+            return cached.names;
         }
-        String sql = JdbcTraceSql.describe(queries);
-        SqlNames names = new SqlNames(sql, "SQL " + JdbcTraceSql.commandOf(sql),
-                operationStats == null ? null : JdbcTraceSql.statsName(queries, sql));
-        if (cacheable) {
-            if (sqlNames.size() >= MAX_CACHED_SQL) sweep();
-            if (sqlNames.size() < MAX_CACHED_SQL) sqlNames.putIfAbsent(raw, new CachedNames(names));
-        }
+        SqlNames names = names(JdbcTraceSql.describe(queries), queries);
+        if (sqlNames.size() >= MAX_CACHED_SQL) sweep();
+        if (sqlNames.size() < MAX_CACHED_SQL) sqlNames.putIfAbsent(key, new CachedNames(names, raw));
         return names;
+    }
+
+    /**
+     * 64-bit FNV-1a over four interleaved lanes (independent multiply chains run in parallel), then a finalizer.
+     * A collision would only lend one statement another's name, and also needs equal hash codes and lengths.
+     */
+    static long fingerprint(String sql) {
+        final long prime = 0x100000001b3L;
+        long a = 0xcbf29ce484222325L;
+        long b = a ^ 1;
+        long c = a ^ 2;
+        long d = a ^ 3;
+        int n = sql.length();
+        int i = 0;
+        for (; i + 3 < n; i += 4) {
+            a = (a ^ sql.charAt(i)) * prime;
+            b = (b ^ sql.charAt(i + 1)) * prime;
+            c = (c ^ sql.charAt(i + 2)) * prime;
+            d = (d ^ sql.charAt(i + 3)) * prime;
+        }
+        for (; i < n; i++) a = (a ^ sql.charAt(i)) * prime;
+        long h = a ^ Long.rotateLeft(b, 16) ^ Long.rotateLeft(c, 32) ^ Long.rotateLeft(d, 48) ^ n;
+        h = (h ^ (h >>> 33)) * 0xff51afd7ed558ccdL;
+        h = (h ^ (h >>> 33)) * 0xc4ceb9fe1a85ec53L;
+        return h ^ (h >>> 33);
+    }
+
+    private SqlNames names(String sql, List<QueryInfo> queries) {
+        return new SqlNames(sql, "SQL " + JdbcTraceSql.commandOf(sql),
+                operationStats == null ? null : JdbcTraceSql.statsName(queries, sql));
     }
 
     private synchronized void sweep() {
@@ -133,15 +168,20 @@ public final class JdbcTraceQueryExecutionListener implements QueryExecutionList
 
     private static final class CachedNames {
         final SqlNames names;
+        final long fingerprint;
+        volatile WeakReference<String> lastSeen;
         volatile boolean used;
 
-        CachedNames(SqlNames names) {
+        CachedNames(SqlNames names, String raw) {
             this.names = names;
+            this.fingerprint = fingerprint(raw);
+            this.lastSeen = new WeakReference<>(raw);
         }
     }
 
     boolean cached(String raw) {
-        return sqlNames.containsKey(raw);
+        CachedNames cached = sqlNames.get(((long) raw.hashCode() << 32) | raw.length());
+        return cached != null && cached.fingerprint == fingerprint(raw);
     }
 
     int cachedSqlCount() {

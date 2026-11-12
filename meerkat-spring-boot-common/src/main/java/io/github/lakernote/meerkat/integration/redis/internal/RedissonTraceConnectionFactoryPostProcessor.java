@@ -2,6 +2,7 @@ package io.github.lakernote.meerkat.integration.redis.internal;
 
 import io.github.lakernote.meerkat.metrics.internal.OperationStats;
 import io.github.lakernote.meerkat.trace.SpanKind;
+import io.github.lakernote.meerkat.trace.internal.BoundedThrowableFormatter;
 import io.github.lakernote.meerkat.trace.internal.TraceContext;
 import io.github.lakernote.meerkat.trace.internal.DetachedSpan;
 import io.github.lakernote.meerkat.trace.internal.CaptureTarget;
@@ -235,12 +236,18 @@ public final class RedissonTraceConnectionFactoryPostProcessor implements BeanPo
     }
 
     private void finish(DetachedSpan span, Throwable failure) {
+        BoundedThrowableFormatter.FailureEvidence evidence = null;
         try {
-            span.close();
-            if (failure != null) TraceContext.markError("REDIS_ERROR", failure);
+            if (failure != null) {
+                evidence = BoundedThrowableFormatter.capture(failure);
+                span.markError(evidence);
+            }
         } catch (Throwable ignored) {
             // Instrumentation must never change the application's Redis result.
+        } finally {
+            span.close();
         }
+        if (evidence != null) TraceContext.markError("REDIS_ERROR", evidence);
     }
 
     private static boolean isCommand(Method method) {
