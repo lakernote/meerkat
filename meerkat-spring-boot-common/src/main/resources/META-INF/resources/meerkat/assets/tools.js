@@ -1,6 +1,6 @@
 import {
   $, authHeaders, bearerToken, csrfToken, initializeEmbeddedAuth, loginRedirected, node, SESSION_EXPIRED_MESSAGE, showNotice
-} from './common.js?v=20261111.3'
+} from './common.js?v=20261111.4'
 
 const API = new URL('../../api/meerkat/tools/', import.meta.url)
 const DENIED = t('没有查看的权限，请登录或检查 ObservabilityAccessPolicy')
@@ -18,6 +18,10 @@ let flameRects = []
 let tab = 'log-levels'
 let loggerSearchTimer = null
 let loggerRequest = 0
+let statusRequest = 0
+let statusFailed = false
+/** Names from the root to the frame chosen with the keyboard, or null. */
+let flameCursor = null
 
 /** Calls the toolbox API; {@code messages} maps HTTP statuses to the text shown when they are returned. */
 async function call(path, options = {}, messages = {}) {
@@ -108,11 +112,22 @@ function table(headers, rows) {
 // ---- status ----
 
 async function refresh() {
+  const requestId = ++statusRequest
+  let next
   try {
-    status = await call('status')
+    next = await call('status')
   } catch (error) {
+    if (requestId !== statusRequest) return
+    statusFailed = true
     showNotice(error.message, true)
     return
+  }
+  // A slower, older response must not overwrite permissions from a newer one.
+  if (requestId !== statusRequest) return
+  status = next
+  if (statusFailed) {
+    statusFailed = false
+    showNotice('')
   }
   if (!status.enabled) {
     showNotice(DISABLED, true)
@@ -156,9 +171,16 @@ async function loadLoggers() {
   $('logger-rows').replaceChildren(...loggers.map(logger => {
     const row = node('tr', logger.overriddenUntil ? 'is-selected' : null)
     row.append(cell(logger.name, 'mono'), cell(logger.configuredLevel), cell(logger.effectiveLevel))
-    row.addEventListener('click', () => {
+    row.tabIndex = 0
+    const choose = () => {
       $('logger-name').value = logger.name
       $('logger-name').focus()
+    }
+    row.addEventListener('click', choose)
+    row.addEventListener('keydown', event => {
+      if (event.key !== 'Enter' && event.key !== ' ') return
+      event.preventDefault()
+      choose()
     })
     return row
   }))
@@ -240,6 +262,7 @@ function startProfile() {
       operate: true
     }, { 429: t('已有一个采样正在进行，请等待其结束') })
     flameFocus = null
+    flameCursor = null
     await loadProfile(session.id)
   })
 }
@@ -364,7 +387,7 @@ function drawFlame() {
       const fit = Math.floor((w - 6) / 6.6)
       context.fillText(label.length > fit ? label.slice(0, Math.max(fit - 1, 0)) + '…' : label, x + 3, y + ROW_HEIGHT / 2)
     }
-    flameRects.push({ x, y, w, frame, names })
+    flameRects.push({ x, y, w, frame, names, faded })
   }
   // Ancestors of the zoomed frame span the full width.
   path.slice(0, -1).forEach((frame, depth) => box(frame, 0, depth * ROW_HEIGHT, width, path.slice(0, depth + 1).map(f => f.name), true))
@@ -380,6 +403,12 @@ function drawFlame() {
     }
   }
   layout(focus, 0, path.length - 1, path.map(frame => frame.name))
+  const selected = flameCursor && flameRects.find(rect => sameNames(rect.names, flameCursor))
+  if (selected) {
+    context.strokeStyle = '#1d2a3b'
+    context.lineWidth = 2
+    context.strokeRect(selected.x + 1, selected.y + 1, Math.max(selected.w - 3, 1), ROW_HEIGHT - 3)
+  }
   $('flame-path').textContent = path.length > 1 ? path.slice(1).map(frame => frame.name.replace(/^.*\.(\w+\.\w+)$/, '$1')).join(' › ') : ''
   $('flame-reset').hidden = path.length === 1
 }
@@ -391,22 +420,65 @@ function flameHit(event) {
   return flameRects.find(rect => x >= rect.x && x < rect.x + rect.w && y >= rect.y && y < rect.y + ROW_HEIGHT)
 }
 
+function sameNames(left, right) {
+  return left.length === right.length && left.every((name, index) => name === right[index])
+}
+
 function flameHover(event) {
-  const tip = $('flame-tip')
   const hit = flameHit(event)
   if (!hit) {
-    tip.hidden = true
+    $('flame-tip').hidden = true
     return
   }
+  const wrap = $('flame').parentElement.getBoundingClientRect()
+  showFlameTip(hit, event.clientX - wrap.left, event.clientY - wrap.top)
+}
+
+function showFlameTip(hit, x, y) {
+  const tip = $('flame-tip')
   const total = profile.root.total || 1
   tip.replaceChildren(node('strong', null, hit.frame.name),
     node('span', null, t('样本 {samples}（{percent}%），自身 {self}', {
       samples: hit.frame.total, percent: (hit.frame.total * 100 / total).toFixed(2), self: hit.frame.self
     })))
   tip.hidden = false
-  const wrap = $('flame').parentElement.getBoundingClientRect()
-  tip.style.left = `${Math.min(event.clientX - wrap.left + 12, wrap.width - 320)}px`
-  tip.style.top = `${event.clientY - wrap.top + 14}px`
+  const width = $('flame').parentElement.clientWidth
+  tip.style.left = `${Math.max(0, Math.min(x + 12, width - 320))}px`
+  tip.style.top = `${y + 14}px`
+}
+
+const FLAME_KEYS = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Enter', ' ', 'Escape']
+
+/** Arrow keys move between frames, Enter zooms into the chosen frame and Escape zooms back out. */
+function flameKey(event) {
+  if (!profile || !flameRects.length || !FLAME_KEYS.includes(event.key)) return
+  if (event.key === 'Escape') {
+    if (!flameFocus) return
+    flameFocus = flameFocus.length > 2 ? flameFocus.slice(0, -1) : null
+  } else {
+    const current = flameCursor && flameRects.find(rect => sameNames(rect.names, flameCursor))
+    let next = current
+    if (!current) {
+      next = flameRects.find(rect => !rect.faded) || flameRects[0]
+    } else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+      const row = flameRects.filter(rect => rect.y === current.y).sort((a, b) => a.x - b.x)
+      next = row[row.indexOf(current) + (event.key === 'ArrowLeft' ? -1 : 1)] || current
+    } else if (event.key === 'ArrowDown') {
+      next = flameRects.filter(rect => rect.y === current.y + ROW_HEIGHT
+        && rect.x >= current.x && rect.x < current.x + current.w).sort((a, b) => a.x - b.x)[0] || current
+    } else if (event.key === 'ArrowUp') {
+      next = flameRects.find(rect => rect.y === current.y - ROW_HEIGHT
+        && current.x >= rect.x && current.x < rect.x + rect.w) || current
+    } else {
+      flameFocus = current.names.length > 1 ? current.names : null
+    }
+    flameCursor = next.names
+  }
+  event.preventDefault()
+  drawFlame()
+  const selected = flameCursor && flameRects.find(rect => sameNames(rect.names, flameCursor))
+  if (selected) showFlameTip(selected, selected.x, selected.y)
+  else $('flame-tip').hidden = true
 }
 
 function flameClick(event) {
@@ -704,6 +776,9 @@ function selectTab(next) {
     else $(`tab-${name}`).removeAttribute('aria-current')
     $(`${name}-panel`).hidden = !active
   }
+  // On narrow screens the tab strip scrolls; keep a deep-linked tab visible.
+  // Deferred until styles and translated labels are laid out, or the scroll position is lost on page load.
+  requestAnimationFrame(() => $(`tab-${tab}`).scrollIntoView({ block: 'nearest', inline: 'nearest' }))
   // The canvas has no width while its panel is hidden, so redraw once the panel is shown.
   if (tab === 'profiler' && profile && !$('flame-wrap').hidden) drawFlame()
 }
@@ -740,6 +815,8 @@ $('flame-search').addEventListener('input', () => profile && drawFlame())
 $('flame').addEventListener('mousemove', flameHover)
 $('flame').addEventListener('mouseleave', () => { $('flame-tip').hidden = true })
 $('flame').addEventListener('click', flameClick)
+$('flame').addEventListener('keydown', flameKey)
+$('flame').addEventListener('blur', () => { $('flame-tip').hidden = true })
 window.addEventListener('resize', () => tab === 'profiler' && profile && !$('flame-wrap').hidden && drawFlame())
 $('histogram-take').addEventListener('click', takeHistogram)
 $('heap-dump-start').addEventListener('click', heapDump)

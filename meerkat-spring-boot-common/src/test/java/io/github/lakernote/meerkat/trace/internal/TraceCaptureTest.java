@@ -131,6 +131,7 @@ class TraceCaptureTest {
         root.capture("a", "a".repeat(100));
         root.capture("b", "b".repeat(100));
         root.capture("c", "c".repeat(10));
+        root.capture("d", "d".repeat(10));
 
         TraceContext.stopRoot(Long.MAX_VALUE);
 
@@ -138,6 +139,7 @@ class TraceCaptureTest {
         assertThat(captures.get("a")).isEqualTo("a".repeat(64) + "… [truncated, 100 chars]");
         assertThat(captures.get("b")).startsWith("b".repeat(62) + "…").contains("[truncated, 100 chars]");
         assertThat(captures.get("c")).isEqualTo(CaptureBudget.OMITTED);
+        assertThat(captures).doesNotContainKey("d");
     }
 
     @Test
@@ -195,6 +197,7 @@ class TraceCaptureTest {
         assertThat(limits).isEqualTo(new CaptureLimits(0, 0, 64, 0));
         CaptureBudget budget = new CaptureBudget(10, 0);
         assertThat(budget.render("anything")).isEqualTo(CaptureBudget.OMITTED);
+        assertThat(budget.render("more")).isNull();
     }
 
     @Test

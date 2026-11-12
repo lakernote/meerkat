@@ -165,7 +165,8 @@ final class Span {
         if (captureBudget != null && captures != null && !captures.isEmpty()) {
             capturedValues = new LinkedHashMap<>();
             for (Map.Entry<String, Object> entry : captures.entrySet()) {
-                capturedValues.put(entry.getKey(), captureBudget.render(entry.getValue()));
+                String rendered = captureBudget.render(entry.getValue());
+                if (rendered != null) capturedValues.put(entry.getKey(), rendered);
             }
         }
         List<TraceNode> childNodes = new ArrayList<>();

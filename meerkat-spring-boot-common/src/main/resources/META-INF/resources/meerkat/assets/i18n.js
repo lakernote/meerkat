@@ -469,6 +469,7 @@
     '工具列表': 'Tools',
     '日志级别': 'Log levels',
     'CPU 火焰图': 'CPU flame graph',
+    'CPU 火焰图：方向键选择方块，Enter 放大，Esc 返回上一级': 'CPU flame graph: use the arrow keys to choose a frame, Enter to zoom in and Escape to zoom out',
     '堆直方图': 'Heap histogram',
     '堆 Dump': 'Heap dump',
     '配置来源': 'Configuration sources',

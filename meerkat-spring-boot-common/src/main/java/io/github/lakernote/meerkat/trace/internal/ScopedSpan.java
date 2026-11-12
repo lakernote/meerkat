@@ -38,8 +38,12 @@ public final class ScopedSpan implements SpanHandle {
 
     /** Marks both this span and its whole trace as failed, keeping the first captured evidence. */
     public void markTraceError(String reason, Throwable failure) {
+        markTraceError(reason, BoundedThrowableFormatter.capture(failure));
+    }
+
+    /** Same as {@link #markTraceError(String, Throwable)}; safe to call from any thread. */
+    public void markTraceError(String reason, BoundedThrowableFormatter.FailureEvidence evidence) {
         if (trace == null) return;
-        BoundedThrowableFormatter.FailureEvidence evidence = BoundedThrowableFormatter.capture(failure);
         trace.markError(reason, evidence);
         if (span != null) trace.markSpanError(span, evidence);
     }

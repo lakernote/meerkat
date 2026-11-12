@@ -85,6 +85,22 @@ class ObservationTraceHandlerTest {
     }
 
     @Test
+    void scopeResetDropsTheOpenRemoteCaptureTarget() {
+        ObservationTraceHandler handler = new ObservationTraceHandler(
+                TraceStore.inMemory(1024 * 1024), new MeerkatProperties(), java.util.List.of());
+        TraceContext.startRoot("GET /orders", SpanKind.HTTP);
+        TraceContext.currentRootTraceHandle().beginCapture((completion, nodes) -> { },
+                new io.github.lakernote.meerkat.trace.internal.CaptureLimits(1024, 2, 10_000, 1_000_000));
+        var target = TraceContext.currentCaptureTarget();
+        assertThat(target.capturing()).isTrue();
+        io.github.lakernote.meerkat.trace.internal.CaptureThreadState.openRemote(target);
+
+        handler.onScopeReset(new Observation.Context());
+
+        assertThat(io.github.lakernote.meerkat.trace.internal.CaptureThreadState.claimRemote()).isNull();
+    }
+
+    @Test
     void ignoresJdbcObservationsWhileMeerkatRecordsSqlItself() {
         ObservationTraceHandler handler = new ObservationTraceHandler(
                 TraceStore.inMemory(1024 * 1024), new MeerkatProperties(), java.util.List.of());

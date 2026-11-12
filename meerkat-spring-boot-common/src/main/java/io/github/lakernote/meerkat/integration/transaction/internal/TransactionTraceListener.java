@@ -7,15 +7,20 @@ import io.github.lakernote.meerkat.trace.internal.*;
 import org.springframework.transaction.TransactionExecution;
 import org.springframework.transaction.TransactionExecutionListener;
 
-import java.util.IdentityHashMap;
+import java.util.Collections;
 import java.util.Map;
+import java.util.WeakHashMap;
 
 /**
  * Records Spring transaction boundaries without proxying application services.
  */
 public final class TransactionTraceListener implements TransactionExecutionListener {
     private final MeerkatProperties properties;
-    private final ThreadLocal<Map<TransactionExecution, State>> states = new ThreadLocal<>();
+    /**
+     * Shared rather than thread-local because some transaction managers complete on another thread. Weak keys drop
+     * the state of an execution that never reports completion.
+     */
+    private final Map<TransactionExecution, State> states = Collections.synchronizedMap(new WeakHashMap<>());
 
     public TransactionTraceListener(MeerkatProperties properties) {
         this.properties = properties;
@@ -31,77 +36,52 @@ public final class TransactionTraceListener implements TransactionExecutionListe
             boolean ownsTraceId = needsTraceId && !TraceIds.isValidTraceId(currentId);
             String traceId = ownsTraceId ? TraceIds.getOrCreateTraceId()
                     : currentId == null ? "" : currentId;
-            Thread currentThread = Thread.currentThread();
-            State state = new State(traceId, ownsTraceId, tracing,
-                    safeName(execution.getTransactionName()), execution.isReadOnly(), currentThread.getId());
+            State state = new State(traceId, ownsTraceId,
+                    safeName(execution.getTransactionName()), execution.isReadOnly());
             if (tracing && TraceContext.active()) {
                 // Begin before the transaction manager acquires its connection so connection work is nested here.
                 state.span = TraceContext.startScopedSpan(state.name, SpanKind.TRANSACTION,
                         state.readOnly ? "read-only" : "write");
             }
-            Map<TransactionExecution, State> currentStates = states.get();
-            if (currentStates == null) {
-                currentStates = new IdentityHashMap<>();
-                states.set(currentStates);
-            }
-            currentStates.put(execution, state);
+            states.put(execution, state);
         } catch (Throwable ignored) {
-            removeState(execution);
+            states.remove(execution);
         }
     }
 
     @Override
     public void afterBegin(TransactionExecution execution, Throwable failure) {
-        State state = stateFor(execution);
-        if (state == null) return;
-        if (failure != null) {
-            finish(execution, state, false, failure);
-        } else {
-            // A transaction can be completed on another thread by some transaction managers.
-            state.threadId = Thread.currentThread().getId();
-        }
+        if (failure != null) finish(execution, false, failure);
     }
 
     @Override
     public void afterCommit(TransactionExecution execution, Throwable failure) {
-        finish(execution, stateFor(execution), failure == null, failure);
+        finish(execution, failure == null, failure);
     }
 
     @Override
     public void afterRollback(TransactionExecution execution, Throwable failure) {
-        finish(execution, stateFor(execution), false, failure);
+        finish(execution, false, failure);
     }
 
-    private void finish(TransactionExecution execution, State state, boolean success, Throwable failure) {
+    private void finish(TransactionExecution execution, boolean success, Throwable failure) {
+        State state = states.remove(execution);
         if (state == null) return;
-        removeState(execution);
         try {
-            boolean sameThread = state.threadId == Thread.currentThread().getId();
             BoundedThrowableFormatter.FailureEvidence error = failure == null
                     ? success ? null : new BoundedThrowableFormatter.FailureEvidence(
                     "TransactionRollback", "Transaction rolled back", "")
                     : BoundedThrowableFormatter.capture(failure);
-            if (state.tracing && sameThread && !success) {
-                TraceContext.markError("TRANSACTION_ERROR", error);
+            if (state.span != null) {
+                // The span belongs to the trace that began the transaction, whichever thread completes it.
+                if (!success) state.span.markTraceError("TRANSACTION_ERROR", error);
+                state.span.close();
             }
-            if (sameThread && state.span != null) state.span.close();
         } catch (Throwable ignored) {
             // Instrumentation must never change the transaction result.
         } finally {
             if (state.ownsTraceId && state.traceId.equals(TraceIdContext.currentTraceId())) TraceIds.clear();
         }
-    }
-
-    private State stateFor(TransactionExecution execution) {
-        Map<TransactionExecution, State> currentStates = states.get();
-        return currentStates == null ? null : currentStates.get(execution);
-    }
-
-    private void removeState(TransactionExecution execution) {
-        Map<TransactionExecution, State> currentStates = states.get();
-        if (currentStates == null) return;
-        currentStates.remove(execution);
-        if (currentStates.isEmpty()) states.remove();
     }
 
     private static String safeName(String name) {
@@ -113,18 +93,13 @@ public final class TransactionTraceListener implements TransactionExecutionListe
         private final boolean ownsTraceId;
         private final String name;
         private final boolean readOnly;
-        private final boolean tracing;
-        private long threadId;
         private ScopedSpan span;
 
-        private State(String traceId, boolean ownsTraceId, boolean tracing, String name, boolean readOnly,
-                      long threadId) {
+        private State(String traceId, boolean ownsTraceId, String name, boolean readOnly) {
             this.traceId = traceId;
             this.ownsTraceId = ownsTraceId;
-            this.tracing = tracing;
             this.name = name;
             this.readOnly = readOnly;
-            this.threadId = threadId;
         }
     }
 }

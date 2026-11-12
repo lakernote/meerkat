@@ -31,6 +31,7 @@ import java.util.NavigableMap;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -86,6 +87,8 @@ public final class TraceStore implements AutoCloseable {
     private long maxIndexBytes = MAX_INDEX_BYTES;
     private final ArrayDeque<Entry> hot = new ArrayDeque<>();
     private long hotBytes;
+    /** Records waiting for the writer; kept within the hot budget so a slow disk cannot pin unbounded heap. */
+    private long queuedBytes;
     private final AtomicLong nextId = new AtomicLong();
     private final AtomicLong restoredSequence = new AtomicLong();
     private final AtomicLong limitsCheckedAtMillis = new AtomicLong();
@@ -93,6 +96,7 @@ public final class TraceStore implements AutoCloseable {
     private long generation;
     private volatile boolean persistent;
     private volatile boolean restoring;
+    private volatile Thread restoreThread;
     private boolean warningLogged;
     private boolean oversizedWarningLogged;
 
@@ -163,6 +167,7 @@ public final class TraceStore implements AutoCloseable {
         restoring = true;
         Thread thread = new Thread(() -> restoreIndex(existing, startGeneration), "meerkat-trace-index");
         thread.setDaemon(true);
+        restoreThread = thread;
         thread.start();
     }
 
@@ -199,7 +204,9 @@ public final class TraceStore implements AutoCloseable {
                 evictLocked(oldest);
             }
             if (!persistent) return stored;
+            if (queuedBytes + entry.estimatedBytes > hotBudgetBytes && queuedBytes > 0) return stored;
             entry.pendingWrite = true;
+            queuedBytes += entry.estimatedBytes;
             writeGeneration = generation;
         }
         boolean queued;
@@ -326,7 +333,12 @@ public final class TraceStore implements AutoCloseable {
                 indexSize.get(), restoring, throttled.get());
     }
 
-    /** Deletes every stored trace; writes queued before the call are discarded. */
+    /**
+     * Deletes every stored trace; writes queued before the call are discarded.
+     *
+     * @throws java.io.UncheckedIOException when a segment file could not be deleted; it stays on disk and is
+     *         retried by the next clear or retention check
+     */
     public int clear() {
         synchronized (fileLock) {
             int cleared;
@@ -339,15 +351,40 @@ public final class TraceStore implements AutoCloseable {
                 hotBytes = 0;
             }
             closeCurrent();
-            for (Segment segment : segments.values()) deleteQuietly(segment);
-            segments.clear();
+            IOException failure = null;
+            var iterator = segments.values().iterator();
+            while (iterator.hasNext()) {
+                Segment segment = iterator.next();
+                try {
+                    delete(segment);
+                    iterator.remove();
+                } catch (IOException deleteFailure) {
+                    if (failure == null) failure = deleteFailure;
+                    else failure.addSuppressed(deleteFailure);
+                }
+            }
+            if (failure != null) {
+                throw new java.io.UncheckedIOException("Could not delete trace segments in " + directory, failure);
+            }
             return cleared;
         }
     }
 
-    /** Flushes queued writes, then closes the open segment. */
+    /** Stops the index rebuild, flushes queued writes, then closes the open segment. */
     @Override
     public void close() {
+        synchronized (stateLock) {
+            generation++;
+        }
+        Thread restore = restoreThread;
+        if (restore != null) {
+            restore.interrupt();
+            try {
+                restore.join(TimeUnit.SECONDS.toMillis(3));
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+            }
+        }
         writerShutdown.run();
         synchronized (fileLock) {
             closeCurrent();
@@ -441,6 +478,7 @@ public final class TraceStore implements AutoCloseable {
 
     private void finishWrite(Entry entry, Location location) {
         synchronized (stateLock) {
+            if (entry.pendingWrite) queuedBytes -= entry.estimatedBytes;
             entry.pendingWrite = false;
             if (location != null && !entry.removed) entry.location = location;
             if (!entry.hot) evictLocked(entry);
@@ -588,8 +626,13 @@ public final class TraceStore implements AutoCloseable {
         }
         if (expired.isEmpty()) return;
         for (Segment segment : expired) {
-            segments.remove(segment.id);
-            deleteQuietly(segment);
+            try {
+                delete(segment);
+                segments.remove(segment.id);
+            } catch (IOException failure) {
+                // Kept in the segment list so the next check retries it and new segments never reuse its name.
+                log.debug("Could not delete Meerkat trace segment {}", segment.path, failure);
+            }
         }
         synchronized (stateLock) {
             for (Entry entry : index.values()) {
@@ -601,13 +644,9 @@ public final class TraceStore implements AutoCloseable {
         }
     }
 
-    private void deleteQuietly(Segment segment) {
+    private static void delete(Segment segment) throws IOException {
+        Files.deleteIfExists(segment.path);
         segment.deleted = true;
-        try {
-            Files.deleteIfExists(segment.path);
-        } catch (IOException failure) {
-            log.debug("Could not delete Meerkat trace segment {}", segment.path, failure);
-        }
     }
 
     private void closeCurrent() {
@@ -645,7 +684,7 @@ public final class TraceStore implements AutoCloseable {
     private void restoreIndex(List<Segment> newestFirst, long startGeneration) {
         try {
             for (Segment segment : newestFirst) {
-                if (indexFull() || segment.deleted) break;
+                if (indexFull() || segment.deleted || Thread.currentThread().isInterrupted()) break;
                 List<Restored> lines = readSegment(segment);
                 // Older segments get lower sequences, and later lines of a segment higher ones, so records that
                 // finished in the same millisecond keep their file order.
@@ -665,9 +704,12 @@ public final class TraceStore implements AutoCloseable {
                 }
             }
         } catch (Exception failure) {
-            log.warn("Could not rebuild the Meerkat trace index from {}", directory, failure);
+            if (!Thread.currentThread().isInterrupted()) {
+                log.warn("Could not rebuild the Meerkat trace index from {}", directory, failure);
+            }
         } finally {
             restoring = false;
+            restoreThread = null;
         }
     }
 

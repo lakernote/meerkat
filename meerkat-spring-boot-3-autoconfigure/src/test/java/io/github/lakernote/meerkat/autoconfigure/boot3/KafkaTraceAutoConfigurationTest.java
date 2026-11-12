@@ -63,6 +63,28 @@ class KafkaTraceAutoConfigurationTest {
     }
 
     @Test
+    void setsConfiguredHeaderWhenTheInterceptorIsAlreadyListed() {
+        new ApplicationContextRunner()
+                .withConfiguration(AutoConfigurations.of(KafkaProducerTraceAutoConfiguration.class))
+                .withBean(MeerkatProperties.class, () -> {
+                    MeerkatProperties properties = new MeerkatProperties();
+                    properties.getTrace().setHeaderName("x-correlation-id");
+                    return properties;
+                })
+                .run(context -> {
+                    DefaultKafkaProducerFactory<String, String> factory = new DefaultKafkaProducerFactory<>(Map.of(
+                            ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092",
+                            ProducerConfig.INTERCEPTOR_CLASSES_CONFIG, TraceIdProducerInterceptor.class.getName()));
+                    context.getBean(DefaultKafkaProducerFactoryCustomizer.class).customize(factory);
+                    assertThat(factory.getConfigurationProperties().get(ProducerConfig.INTERCEPTOR_CLASSES_CONFIG))
+                            .isEqualTo(TraceIdProducerInterceptor.class.getName());
+                    assertThat(factory.getConfigurationProperties().get(
+                            TraceIdProducerInterceptor.TRACE_ID_HEADER_CONFIG)).isEqualTo("x-correlation-id");
+                    factory.destroy();
+                });
+    }
+
+    @Test
     void producerUsesConfiguredHeaderAndDoesNotInventTraceIdsOutsideAnEntry() {
         TraceIdProducerInterceptor<String, String> interceptor = new TraceIdProducerInterceptor<>();
         interceptor.configure(Map.of(TraceIdProducerInterceptor.TRACE_ID_HEADER_CONFIG, "x-correlation-id"));

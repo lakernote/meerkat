@@ -1,4 +1,4 @@
-import { $, initializeEmbeddedAuth, kindName, node, poll, request as apiRequest } from './common.js?v=20261111.3'
+import { $, initializeEmbeddedAuth, kindName, node, poll, request as apiRequest } from './common.js?v=20261111.4'
 
 const PAGE_SIZE = 50
 let traces = { items: [], nextCursor: null, scanLimited: false, total: 0 }
@@ -448,13 +448,26 @@ function bind() {
     window.clearTimeout(searchTimer)
     searchTimer = window.setTimeout(() => showPage(0), 300)
   })
-  $('previous').addEventListener('click', () => { if (page > 0) showPage(page - 1) })
-  $('next').addEventListener('click', () => {
-    if (!traces.nextCursor) return
-    pageCursors[page + 1] = traces.nextCursor
-    page += 1
-    refresh()
-  })
+  // One page request at a time: a double click would otherwise request the same cursor twice and skip a page number.
+  let paging = false
+  const turnPage = async (target, cursor) => {
+    if (paging) return
+    paging = true
+    const previous = page
+    try {
+      if (cursor) pageCursors[target] = cursor
+      page = target
+      pageCursors.length = page + 1
+      if (!(await refresh())) {
+        page = previous
+        pageCursors.length = page + 1
+      }
+    } finally {
+      paging = false
+    }
+  }
+  $('previous').addEventListener('click', () => { if (page > 0) turnPage(page - 1) })
+  $('next').addEventListener('click', () => { if (traces.nextCursor) turnPage(page + 1, traces.nextCursor) })
   $('refresh').addEventListener('click', refresh)
   $('close-dialog').addEventListener('click', () => { detailRequest += 1; $('detail-dialog').close() })
   $('detail-dialog').addEventListener('close', () => { detailRequest += 1 })

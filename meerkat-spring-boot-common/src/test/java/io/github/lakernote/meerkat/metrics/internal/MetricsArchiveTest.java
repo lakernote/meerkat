@@ -22,6 +22,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.groups.Tuple.tuple;
 
 class MetricsArchiveTest {
@@ -280,6 +281,18 @@ class MetricsArchiveTest {
         assertThat(operations("20261105")).doesNotExist();
         assertThat(directory.resolve("resources-20261105.tsv")).exists();
         assertThat(stats(100).snapshot(Window.MONTH).categories()).allSatisfy(c -> assertThat(c.rows()).isEmpty());
+    }
+
+    @Test
+    void clearOperationsReportsFilesItCouldNotDelete() throws Exception {
+        MetricsArchive archive = archive();
+        Files.createDirectories(operations("20261104").resolve("blocker"));
+        Files.writeString(operations("20261105"), "x");
+        OperationStats stats = new OperationStats(100, archive, clock::get, ZoneOffset.UTC);
+
+        assertThatThrownBy(stats::clear).isInstanceOf(java.io.UncheckedIOException.class);
+        assertThat(operations("20261105")).doesNotExist();
+        assertThat(archive.status().persistent()).isTrue();
     }
 
     @Test

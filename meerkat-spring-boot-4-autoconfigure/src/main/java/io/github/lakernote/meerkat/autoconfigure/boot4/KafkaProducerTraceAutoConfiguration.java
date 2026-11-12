@@ -33,10 +33,11 @@ public class KafkaProducerTraceAutoConfiguration {
             if (interceptors.stream().noneMatch(value -> interceptorClass.equals(className(value)))) {
                 // 幂等追加，避免重复注册同一个拦截器，也不覆盖宿主配置。
                 interceptors.add(interceptorClass);
-                factory.updateConfigs(Map.of(
-                        ProducerConfig.INTERCEPTOR_CLASSES_CONFIG, List.copyOf(interceptors),
-                        TraceIdProducerInterceptor.TRACE_ID_HEADER_CONFIG, properties.getTrace().getHeaderName()));
+                factory.updateConfigs(Map.of(ProducerConfig.INTERCEPTOR_CLASSES_CONFIG, List.copyOf(interceptors)));
             }
+            // Also set when the interceptor was listed by hand, so producer and consumer agree on the header.
+            factory.updateConfigs(Map.of(
+                    TraceIdProducerInterceptor.TRACE_ID_HEADER_CONFIG, properties.getTrace().getHeaderName()));
         };
     }
 

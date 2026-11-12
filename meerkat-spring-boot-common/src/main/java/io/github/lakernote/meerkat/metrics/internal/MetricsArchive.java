@@ -264,7 +264,11 @@ public final class MetricsArchive {
         }
     }
 
-    /** Deletes the saved operation history; resource history is kept. */
+    /**
+     * Deletes the saved operation history; resource history is kept.
+     *
+     * @throws java.io.UncheckedIOException when a file could not be deleted; the others are still deleted
+     */
     synchronized void clearOperations() {
         totalsCache.clear();
         closedDays = null;
@@ -273,10 +277,21 @@ public final class MetricsArchive {
         todayDate = null;
         todaySize = -1;
         if (!available) return;
+        IOException failure = null;
         try {
-            for (Path file : files(OPERATIONS).values()) Files.deleteIfExists(file);
-        } catch (IOException | RuntimeException failure) {
-            disable("delete operation metrics", failure);
+            for (Path file : files(OPERATIONS).values()) {
+                try {
+                    Files.deleteIfExists(file);
+                } catch (IOException deleteFailure) {
+                    if (failure == null) failure = deleteFailure;
+                    else failure.addSuppressed(deleteFailure);
+                }
+            }
+        } catch (IOException listFailure) {
+            failure = listFailure;
+        }
+        if (failure != null) {
+            throw new java.io.UncheckedIOException("Could not delete operation metrics in " + directory, failure);
         }
     }
 

@@ -72,6 +72,10 @@ final class JdbcCapture {
             for (ParameterSetOperation operation : sorted) {
                 Object[] args = operation.getArgs();
                 if (args == null || args.length == 0) continue;
+                if (out.length() > maxChars) {
+                    out.append(" …");
+                    return;
+                }
                 if (!first) out.append(", ");
                 first = false;
                 out.append('[').append(args[0]).append("] ");

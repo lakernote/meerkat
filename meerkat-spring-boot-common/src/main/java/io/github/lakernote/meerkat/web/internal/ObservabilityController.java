@@ -86,7 +86,12 @@ public class ObservabilityController {
     public ClearTracesResult clearTraces() {
         requireAccess();
         if (!accessPolicy.canClear()) throw new ResponseStatusException(HttpStatus.FORBIDDEN);
-        return new ClearTracesResult(traceStore.clear());
+        try {
+            return new ClearTracesResult(traceStore.clear());
+        } catch (java.io.UncheckedIOException failure) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
+                    "Could not delete the saved trace history", failure);
+        }
     }
 
     private void requireAccess() {

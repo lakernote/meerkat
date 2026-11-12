@@ -378,6 +378,58 @@ class TraceStoreTest {
     }
 
     @Test
+    void queuedWritesStayWithinTheHotBudgetWhenTheDiskFallsBehind() throws Exception {
+        List<Runnable> queued = new ArrayList<>();
+        TraceStore store = store(2, 128 * MB, queued::add);
+        store.start();
+        for (int i = 0; i < 10; i++) {
+            store.add(trace("t" + i).treeNodes(List.of(sql("select * from orders_0"))).build());
+        }
+
+        assertThat(queued).hasSize(2);
+        // Two hot records plus the two evicted ones still waiting for the writer.
+        assertThat(store.size()).isEqualTo(4);
+        queued.forEach(Runnable::run);
+        queued.clear();
+        store.add(trace("t10").treeNodes(List.of(sql("select * from orders_0"))).build());
+        assertThat(queued).hasSize(1);
+    }
+
+    @Test
+    void clearReportsSegmentsItCouldNotDeleteAndKeepsTheirNames() throws Exception {
+        TraceStore store = store(10, 128 * MB);
+        store.start();
+        store.add(trace("first").build());
+        Path segment = segments().get(0);
+        Files.delete(segment);
+        Files.createDirectories(segment.resolve("blocker"));
+
+        assertThatThrownBy(store::clear).isInstanceOf(java.io.UncheckedIOException.class);
+        store.add(trace("after").build());
+        assertThat(store.storageStatus().persistent()).isTrue();
+        assertThat(segments()).hasSize(2);
+
+        Files.delete(segment.resolve("blocker"));
+        store.clear();
+        assertThat(segments()).isEmpty();
+    }
+
+    @Test
+    void closeStopsTheIndexRebuild() throws Exception {
+        TraceStore first = store(10, 128 * MB);
+        first.start();
+        for (int i = 0; i < 20; i++) first.add(trace("r" + i).build());
+        first.close();
+
+        TraceStore restarted = store(10, 128 * MB);
+        restarted.start();
+        restarted.close();
+        restarted.add(trace("late").build());
+
+        assertThat(restarted.storageStatus().indexing()).isFalse();
+    }
+
+    @Test
     void writesNeverRunOnTheRecordingThreadAndDroppedWritesStayInMemoryWhileHot() throws Exception {
         List<Runnable> queued = new ArrayList<>();
         TraceStore store = store(2, 128 * MB, queued::add);

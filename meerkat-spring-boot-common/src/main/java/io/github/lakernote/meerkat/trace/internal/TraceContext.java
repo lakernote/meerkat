@@ -326,6 +326,13 @@ public final class TraceContext {
             CURRENT_FRAME.remove();
             return null;
         }
+        if (context != null && context.closedTo != null) {
+            // Closed from another thread, e.g. a transaction completed elsewhere: move back to the open parent.
+            ExecutionFrame target = context.closedTo;
+            while (target.closedTo != null) target = target.closedTo;
+            CURRENT_FRAME.set(target);
+            return target;
+        }
         return context;
     }
 

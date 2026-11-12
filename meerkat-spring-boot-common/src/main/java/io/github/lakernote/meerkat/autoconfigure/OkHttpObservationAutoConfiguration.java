@@ -30,8 +30,9 @@ import java.util.regex.Pattern;
 @ConditionalOnProperty(prefix = "meerkat", name = "enabled", havingValue = "true", matchIfMissing = true)
 public class OkHttpObservationAutoConfiguration {
     private static final String OBSERVATION_NAME = "http.client.requests";
-    private static final Pattern IDENTIFIER_PATH_SEGMENT = Pattern.compile(
-            "(?i)(?<=/)([0-9]{2,}|[0-9a-f]{8}-[0-9a-f-]{27,}|[0-9a-f]{16,})(?=/|$)");
+    private static final Pattern IDENTIFIER_SEGMENT = Pattern.compile(
+            "(?i)[0-9]{2,}|[0-9a-f]{8}-[0-9a-f-]{27,}|[0-9a-f]{16,}");
+    private static final int MAX_URI_CHARS = 256;
     @Bean
     static BeanPostProcessor okHttpObservationBeanPostProcessor(ObjectProvider<ObservationRegistry> registryProvider,
                                                                  ObjectProvider<MeerkatProperties> propertiesProvider) {
@@ -64,10 +65,36 @@ public class OkHttpObservationAutoConfiguration {
                 interceptor instanceof OkHttpObservationInterceptor);
     }
 
-    private static String boundedUri(Request request) {
+    static String boundedUri(Request request) {
         String path = request.url().encodedPath();
         if (path == null || path.isBlank()) return "UNKNOWN";
-        return IDENTIFIER_PATH_SEGMENT.matcher(path).replaceAll("{id}");
+        StringBuilder out = new StringBuilder(Math.min(path.length(), MAX_URI_CHARS));
+        int start = 0;
+        while (start <= path.length() && out.length() < MAX_URI_CHARS) {
+            int end = path.indexOf('/', start);
+            if (end < 0) end = path.length();
+            String segment = path.substring(start, end);
+            out.append(identifierLike(segment) ? "{id}" : segment);
+            if (end < path.length()) out.append('/');
+            start = end + 1;
+        }
+        return out.length() > MAX_URI_CHARS ? out.substring(0, MAX_URI_CHARS) : out.toString();
+    }
+
+    /**
+     * Path segments that identify one record, user or credential (numbers, UUIDs, hashes, e-mail addresses, JWTs
+     * and other long tokens) would create a time series per value and may leak personal data.
+     */
+    static boolean identifierLike(String segment) {
+        if (segment.isEmpty()) return false;
+        if (IDENTIFIER_SEGMENT.matcher(segment).matches()) return true;
+        if (segment.indexOf('@') >= 0 || segment.toLowerCase(java.util.Locale.ROOT).contains("%40")) return true;
+        int digits = 0;
+        for (int i = 0; i < segment.length(); i++) {
+            if (Character.isDigit(segment.charAt(i))) digits++;
+        }
+        if (segment.length() >= 24 && (digits > 0 || segment.indexOf('.') >= 0)) return true;
+        return digits >= 4;
     }
 
     /**

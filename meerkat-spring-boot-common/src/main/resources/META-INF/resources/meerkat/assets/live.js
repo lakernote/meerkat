@@ -1,5 +1,5 @@
-import { authHeaders, loginRedirected, SESSION_EXPIRED_MESSAGE } from './common.js?v=20261111.3'
-import { $, api, formatBytes, formatMs, initializeEmbeddedAuth, kindName, node, request, showNotice } from './metrics-common.js?v=20261111.3'
+import { authHeaders, loginRedirected, SESSION_EXPIRED_MESSAGE } from './common.js?v=20261111.4'
+import { $, api, formatBytes, formatMs, initializeEmbeddedAuth, kindName, node, request, showNotice } from './metrics-common.js?v=20261111.4'
 
 const DENIED = t('没有查看实时诊断的权限，请登录或检查 ObservabilityAccessPolicy')
 const SOURCES = { HTTP: 'HTTP', JOB: t('定时任务'), KAFKA_CONSUMER: t('Kafka 消费') }

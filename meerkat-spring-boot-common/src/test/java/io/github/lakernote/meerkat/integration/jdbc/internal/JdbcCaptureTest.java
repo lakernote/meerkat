@@ -74,6 +74,23 @@ class JdbcCaptureTest {
     }
 
     @Test
+    void stopsBuildingParametersOnceTheValueLimitIsReached() throws Exception {
+        startCapture(new CaptureLimits(1024, 2, 100, 1_000_000));
+        QueryInfo query = new QueryInfo("INSERT INTO t VALUES (?)");
+        Method setString = method(PreparedStatement.class, "setString", int.class, String.class);
+        List<ParameterSetOperation> parameters = new java.util.ArrayList<>();
+        for (int i = 1; i <= 1_000; i++) parameters.add(op(setString, i, "v".repeat(1_500)));
+        query.getParametersList().add(parameters);
+
+        run(List.of(query), new ExecutionInfo());
+
+        String params = sqlCaptures(finish()).get("params");
+        java.util.regex.Matcher built = java.util.regex.Pattern.compile("truncated, (\\d+) chars").matcher(params);
+        assertThat(built.find()).isTrue();
+        assertThat(Integer.parseInt(built.group(1))).isLessThan(2_500);
+    }
+
+    @Test
     void recordsSqlParametersAndUpdateCount() throws Exception {
         startCapture();
         QueryInfo query = new QueryInfo("UPDATE t SET a = ?, b = ?, c = ? WHERE d = ?");

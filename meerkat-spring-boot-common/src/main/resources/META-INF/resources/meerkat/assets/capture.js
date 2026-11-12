@@ -1,4 +1,4 @@
-import { $, initializeEmbeddedAuth, kindName, node, request, showNotice } from './common.js?v=20261111.3'
+import { $, initializeEmbeddedAuth, kindName, node, request, showNotice } from './common.js?v=20261111.4'
 
 const DENIED = t('没有流量抓取的权限，请登录或检查 ObservabilityAccessPolicy.canCapture')
 const DISABLED = t('流量抓取不可用：需要开启 meerkat.trace.enabled')

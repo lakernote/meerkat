@@ -5,14 +5,20 @@ final class CaptureBudget {
     static final String OMITTED = "[omitted: capture size limit for this trace reached]";
     private final int maxValueChars;
     private long remainingChars;
+    private boolean omittedReported;
 
     CaptureBudget(int maxValueChars, long maxTraceChars) {
         this.maxValueChars = Math.max(64, maxValueChars);
         this.remainingChars = Math.max(0, maxTraceChars);
     }
 
+    /** @return the bounded text; {@link #OMITTED} once when the budget runs out, then {@code null} to drop values */
     String render(Object value) {
-        if (remainingChars <= 0) return OMITTED;
+        if (remainingChars <= 0) {
+            if (omittedReported) return null;
+            omittedReported = true;
+            return OMITTED;
+        }
         int limit = (int) Math.min(maxValueChars, remainingChars);
         String text;
         try {

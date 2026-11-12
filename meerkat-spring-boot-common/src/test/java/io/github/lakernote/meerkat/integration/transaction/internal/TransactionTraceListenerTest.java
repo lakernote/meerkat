@@ -71,6 +71,32 @@ class TransactionTraceListenerTest {
         assertThat(completion.get().errorMessage()).isEqualTo("connection unavailable");
     }
 
+    @Test
+    void completesTransactionThatFinishesOnAnotherThread() throws Exception {
+        TransactionTraceListener listener = new TransactionTraceListener(new MeerkatProperties());
+        TransactionExecution execution = execution("OrderService#create", false);
+        io.github.lakernote.meerkat.trace.internal.TraceContext.startRoot("POST /orders",
+                io.github.lakernote.meerkat.trace.SpanKind.HTTP);
+        String rootSpanId = io.github.lakernote.meerkat.trace.internal.TraceContext.currentSpanId();
+        listener.beforeBegin(execution);
+        listener.afterBegin(execution, null);
+
+        Thread completer = new Thread(() -> listener.afterRollback(execution, null));
+        completer.start();
+        completer.join();
+
+        assertThat(io.github.lakernote.meerkat.trace.internal.TraceContext.currentSpanId()).isEqualTo(rootSpanId);
+        java.util.concurrent.atomic.AtomicReference<TraceCompletion> completion =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        io.github.lakernote.meerkat.trace.internal.TraceContext.stopRoot(0, null, completion::set);
+        assertThat(completion.get().error()).isTrue();
+        assertThat(completion.get().errorMessage()).isEqualTo("Transaction rolled back");
+        var transaction = completion.get().nodes().get(0).children().get(0);
+        assertThat(transaction.name()).isEqualTo("OrderService#create");
+        assertThat(transaction.unfinishedAtTraceEnd()).isFalse();
+        assertThat(transaction.error()).isTrue();
+    }
+
     private static TransactionExecution execution(String name, boolean readOnly) {
         TransactionExecution execution = mock(TransactionExecution.class);
         when(execution.getTransactionName()).thenReturn(name);

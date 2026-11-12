@@ -222,8 +222,9 @@ public final class ObservationTraceHandler implements ObservationHandler<Observa
 
     @Override
     public void onScopeReset(Observation.Context context) {
-        // Context propagation clears every scope on the thread at once.
+        // Context propagation clears every scope on the thread at once, including capture state opened under them.
         TraceContext.resetRootScopes();
+        CaptureThreadState.clear();
     }
 
     @Override

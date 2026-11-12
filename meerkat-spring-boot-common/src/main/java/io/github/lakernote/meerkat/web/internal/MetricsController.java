@@ -116,7 +116,12 @@ public class MetricsController {
     public ResponseEntity<Void> reset() {
         requireAccess();
         if (!accessPolicy.canClear()) throw new ResponseStatusException(HttpStatus.FORBIDDEN);
-        requireEnabled(operationStats).clear();
+        try {
+            requireEnabled(operationStats).clear();
+        } catch (java.io.UncheckedIOException failure) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
+                    "Could not delete the saved operation history", failure);
+        }
         return ResponseEntity.noContent().build();
     }
 
