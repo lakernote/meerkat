@@ -50,14 +50,14 @@ Add the starter that matches your Spring Boot version (Java 17+, Spring Boot 3.5
 <dependency>
     <groupId>io.github.lakernote</groupId>
     <artifactId>meerkat-spring-boot-3-starter</artifactId>
-    <version>0.1.0-alpha.4</version>
+    <version>0.1.0</version>
 </dependency>
 
 <!-- Spring Boot 4 -->
 <dependency>
     <groupId>io.github.lakernote</groupId>
     <artifactId>meerkat-spring-boot-4-starter</artifactId>
-    <version>0.1.0-alpha.4</version>
+    <version>0.1.0</version>
 </dependency>
 ```
 
@@ -142,7 +142,7 @@ Meerkat does not replace a central APM or metrics platform; it gives each servic
 
 ## Status
 
-Meerkat is in **alpha**. Configuration and public API may still change before 1.0; see [Public API](docs/guide.md#public-api) for what will stay stable.
+Meerkat is pre-1.0 (0.x). Configuration and public API may still change before 1.0; see [Public API](docs/guide.md#public-api) for what will stay stable.
 
 ## License
 

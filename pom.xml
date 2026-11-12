@@ -40,7 +40,7 @@
         <module>benchmarks</module>
     </modules>
     <properties>
-        <revision>0.1.0-alpha.5</revision>
+        <revision>0.1.0</revision>
         <java.version>17</java.version>
         <spring-boot-3.version>3.5.16</spring-boot-3.version>
         <spring-boot-4.version>4.1.1</spring-boot-4.version>

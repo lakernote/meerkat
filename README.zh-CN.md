@@ -50,14 +50,14 @@ Meerkat 在应用内部回答两个日常问题：
 <dependency>
     <groupId>io.github.lakernote</groupId>
     <artifactId>meerkat-spring-boot-3-starter</artifactId>
-    <version>0.1.0-alpha.4</version>
+    <version>0.1.0</version>
 </dependency>
 
 <!-- Spring Boot 4 -->
 <dependency>
     <groupId>io.github.lakernote</groupId>
     <artifactId>meerkat-spring-boot-4-starter</artifactId>
-    <version>0.1.0-alpha.4</version>
+    <version>0.1.0</version>
 </dependency>
 ```
 
@@ -142,7 +142,7 @@ Meerkat 不替代集中式 APM 或指标平台，而是给每个服务一个内�
 
 ## 状态
 
-Meerkat 目前处于 **alpha** 阶段，1.0 之前配置和公共 API 仍可能调整；稳定承诺见[公共 API](docs/guide.zh-CN.md#公共-api)。
+Meerkat 目前为 0.x 版本，1.0 之前配置和公共 API 仍可能调整；稳定承诺见[公共 API](docs/guide.zh-CN.md#公共-api)。
 
 ## 许可证
 
