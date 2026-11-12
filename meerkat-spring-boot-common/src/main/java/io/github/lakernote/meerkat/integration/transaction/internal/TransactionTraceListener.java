@@ -67,6 +67,8 @@ public final class TransactionTraceListener implements TransactionExecutionListe
     private void finish(TransactionExecution execution, boolean success, Throwable failure) {
         State state = states.remove(execution);
         if (state == null) return;
+        // Each step is guarded on its own: instrumentation must never change the transaction result, and one
+        // failing step (e.g. a throwing MDC adapter) must not skip the others.
         try {
             if (state.span != null && !success) {
                 BoundedThrowableFormatter.FailureEvidence error = failure == null
@@ -77,10 +79,14 @@ public final class TransactionTraceListener implements TransactionExecutionListe
                 state.span.markTraceError("TRANSACTION_ERROR", error);
             }
         } catch (Throwable ignored) {
-            // Instrumentation must never change the transaction result.
-        } finally {
+        }
+        try {
             if (state.span != null) state.span.close();
+        } catch (Throwable ignored) {
+        }
+        try {
             if (state.ownsTraceId && state.traceId.equals(TraceIdContext.currentTraceId())) TraceIds.clear();
+        } catch (Throwable ignored) {
         }
     }
 

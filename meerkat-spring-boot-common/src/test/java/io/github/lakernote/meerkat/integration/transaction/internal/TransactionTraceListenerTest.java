@@ -73,6 +73,36 @@ class TransactionTraceListenerTest {
     }
 
     @Test
+    void aFailingMdcAdapterNeverEscapesTheCompletionCallback() throws Exception {
+        TransactionTraceListener listener = new TransactionTraceListener(new MeerkatProperties());
+        TransactionExecution execution = execution("OrderService#create", false);
+        io.github.lakernote.meerkat.trace.internal.TraceContext.startRoot("POST /orders",
+                io.github.lakernote.meerkat.trace.SpanKind.HTTP);
+        listener.beforeBegin(execution);
+
+        Object original = org.slf4j.MDC.getMDCAdapter();
+        java.lang.reflect.Field field = java.util.Arrays.stream(org.slf4j.MDC.class.getDeclaredFields())
+                .filter(candidate -> candidate.getType() == org.slf4j.spi.MDCAdapter.class).findFirst().orElseThrow();
+        field.setAccessible(true);
+        field.set(null, java.lang.reflect.Proxy.newProxyInstance(getClass().getClassLoader(),
+                new Class<?>[]{org.slf4j.spi.MDCAdapter.class}, (proxy, method, args) -> {
+                    throw new IllegalStateException("MDC unavailable");
+                }));
+        try {
+            listener.afterCommit(execution, null);
+        } finally {
+            field.set(null, original);
+        }
+
+        java.util.concurrent.atomic.AtomicReference<TraceCompletion> completion =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        io.github.lakernote.meerkat.trace.internal.TraceContext.markSlow("TEST_CAPTURE");
+        io.github.lakernote.meerkat.trace.internal.TraceContext.stopRoot(0, null, completion::set);
+        assertThat(completion.get().nodes().get(0).children()).singleElement()
+                .satisfies(transaction -> assertThat(transaction.unfinishedAtTraceEnd()).isFalse());
+    }
+
+    @Test
     void closesTransactionSpanWhenBeginFails() {
         MeerkatProperties properties = new MeerkatProperties();
         TransactionTraceListener listener = new TransactionTraceListener(properties);
